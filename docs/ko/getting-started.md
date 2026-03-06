@@ -19,9 +19,12 @@ pip install -e .[dev]
 ```python
 from orderwave import Market
 
-market = Market(seed=42)
-snapshot = market.step()
+market = Market(seed=42, config={"preset": "trend"})
+market.gen(steps=1_000)
+
+snapshot = market.get()
 history = market.get_history()
+figure = market.plot()
 ```
 
 ## 생성자
@@ -38,9 +41,23 @@ Market(
 
 - `init_price`: nearest tick으로 스냅되는 초기 기준 가격
 - `tick_size`: 내부 호가장의 가격 단위
-- `levels`: `get()`이 반환하는 visible depth
+- `levels`: `get()`이 반환하는 visible depth이자 기본 plot depth
 - `seed`: 재현 가능한 난수 시드
 - `config`: `dict` 또는 `orderwave.config.MarketConfig`
+
+## 내장 플롯
+
+```python
+overview = market.plot()
+book = market.plot_book()
+diagnostics = market.plot_diagnostics()
+```
+
+- `plot()`은 가격, 스프레드, 체결 강도, signed visible-book heatmap을 렌더링합니다
+- `plot_book()`은 현재 order book을 실제 가격축으로 렌더링합니다
+- `plot_diagnostics()`는 spread, imbalance, volatility, regime 진단을 렌더링합니다
+
+모든 plotting 메서드는 `matplotlib.figure.Figure`를 반환합니다. 저장이나 표시 시점은 사용자가 직접 제어합니다.
 
 ## Preset
 

@@ -4,9 +4,9 @@
 [![Python versions](https://img.shields.io/pypi/pyversions/orderwave.svg)](https://pypi.org/project/orderwave/)
 [![Release workflow](https://github.com/smturtle2/quoteflow/actions/workflows/workflow.yml/badge.svg)](https://github.com/smturtle2/quoteflow/actions/workflows/workflow.yml)
 
-Order-flow-driven synthetic market simulation for Python.
+Order-flow-driven synthetic market simulation for Python, with built-in visualization.
 
-`orderwave` does not sample price first and explain it later. It simulates a sparse limit order book, stochastic limit arrivals, marketable flow, cancellations, and inside-spread quote improvement, then lets price emerge from those book changes.
+`orderwave` does not random-walk price directly. It simulates a sparse limit order book, stochastic limit arrivals, marketable flow, cancellations, and inside-spread quote improvement, then lets price emerge from those book changes. The same `Market` object can also render the path, the current book snapshot, and microstructure diagnostics without extra plotting glue.
 
 [English Docs](https://github.com/smturtle2/quoteflow/tree/main/docs) | [한국어 README](https://github.com/smturtle2/quoteflow/blob/main/README.ko.md) | [한국어 문서](https://github.com/smturtle2/quoteflow/tree/main/docs/ko)
 
@@ -14,11 +14,11 @@ Order-flow-driven synthetic market simulation for Python.
 
 ## Why orderwave
 
-- Minimal public API: `from orderwave import Market`
+- Minimal public entry point: `from orderwave import Market`
 - Price changes only as a consequence of book mechanics
-- Hidden fair value biases flow without directly overwriting price
-- Regime switching creates calmer, directional, and stressed periods
+- Hidden fair value biases order flow without directly overwriting price
 - Same seed, same path
+- Built-in figures for overview, current book, and diagnostics
 
 ## Installation
 
@@ -37,25 +37,18 @@ pip install -e .[dev]
 ```python
 from orderwave import Market
 
-market = Market(seed=42, config={"preset": "balanced"})
-
-market.step()
+market = Market(seed=42, config={"preset": "trend"})
 market.gen(steps=1_000)
 
 snapshot = market.get()
 history = market.get_history()
+figure = market.plot()
 
 print(snapshot["mid_price"], snapshot["best_bid"], snapshot["best_ask"])
 print(history.tail())
+
+figure.savefig("orderwave-overview.png")
 ```
-
-## What You Get
-
-- `mid_price` as the primary quote-driven path
-- `last_price` as the most recent executed trade price
-- Visible bid/ask ladders with aggregate depth
-- Compact history as a `pandas.DataFrame`
-- Presets for balanced, trend, and volatile behavior
 
 ## Public API
 
@@ -67,7 +60,7 @@ market = Market(
     tick_size=0.01,
     levels=5,
     seed=42,
-    config={"preset": "trend"},
+    config={"preset": "balanced"},
 )
 ```
 
@@ -76,47 +69,56 @@ market = Market(
 | `step()` | Run one micro-batch and return the latest snapshot |
 | `gen(steps=n)` | Run `n` micro-batches and return the latest snapshot |
 | `get()` | Return the current snapshot |
-| `get_history()` | Return a compact `pandas.DataFrame` history |
+| `get_history()` | Return compact `pandas.DataFrame` history |
+| `plot()` | Render price, spread, trade strength, and visible-book heatmap |
+| `plot_book()` | Render the current order book on a real price axis |
+| `plot_diagnostics()` | Render spread, imbalance, volatility, and regime diagnostics |
 
 Advanced configuration is available through `orderwave.config.MarketConfig`.
 
+## Built-in Visualization
+
+`Market.plot()` is the default overview figure. It combines the quote-driven path, last-trade path, trade strength, and a signed visible-depth heatmap.
+
+```python
+market = Market(seed=42)
+market.gen(steps=1_000)
+
+overview = market.plot()
+book = market.plot_book()
+diagnostics = market.plot_diagnostics()
+```
+
+### Overview
+
+![orderwave overview](https://raw.githubusercontent.com/smturtle2/quoteflow/main/docs/assets/orderwave-overview.png)
+
+### Current Book Snapshot
+
+![orderwave current book](https://raw.githubusercontent.com/smturtle2/quoteflow/main/docs/assets/orderwave-current-book.png)
+
+### Diagnostics
+
+![orderwave diagnostics](https://raw.githubusercontent.com/smturtle2/quoteflow/main/docs/assets/orderwave-diagnostics.png)
+
+The overview heatmap keeps signed depth. Ask liquidity is red, bid liquidity is blue, `0` maps to a light gray midpoint, and missing levels render as blank background instead of black cells.
+
+## Presets At A Glance
+
+![orderwave presets](https://raw.githubusercontent.com/smturtle2/quoteflow/main/docs/assets/orderwave-presets.png)
+
+`balanced`, `trend`, and `volatile` reuse the same public API while shifting spread behavior, flow pressure, cancellation pressure, and hidden fair-price dynamics.
+
 ## Snapshot Semantics
 
-`Market.get()` returns a dictionary with prices, spread, visible depth, recent aggressive volume, trade strength, depth imbalance, and regime.
+`Market.get()` returns a compact dictionary with prices, spread, visible depth, aggressive volume, trade strength, depth imbalance, and regime.
 
 Important distinction:
 
 - `mid_price` can move when quotes improve, cancel, or get depleted
 - `last_price` only changes when a trade actually executes
 
-## Visualization Example
-
-The repository includes a matplotlib example that plots price, trade strength, and a visible-book heatmap:
-
-```bash
-pip install matplotlib
-python examples/plot_market_heatmap.py --steps 2000 --preset trend
-```
-
-Save directly to a file:
-
-```bash
-python examples/plot_market_heatmap.py --steps 2000 --preset trend --output artifacts/orderwave_heatmap.png
-```
-
-## Presets At A Glance
-
-![orderwave presets](https://raw.githubusercontent.com/smturtle2/quoteflow/main/docs/assets/orderwave-presets.png)
-
-`balanced`, `trend`, and `volatile` reuse the same public API while shifting spread behavior, flow pressure, and hidden fair-price dynamics.
-
-## Diagnostics
-
-![orderwave diagnostics](https://raw.githubusercontent.com/smturtle2/quoteflow/main/docs/assets/orderwave-diagnostics.png)
-
-The simulator is designed to expose useful microstructure diagnostics such as spread variation, imbalance lead, volatility clustering, and regime occupancy.
-
-## Documentation
+## Docs
 
 - [Documentation index](https://github.com/smturtle2/quoteflow/blob/main/docs/README.md)
 - [Getting started](https://github.com/smturtle2/quoteflow/blob/main/docs/getting-started.md)

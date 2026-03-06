@@ -2,9 +2,9 @@
 
 [README](https://github.com/smturtle2/quoteflow/blob/main/README.md) | [한국어 문서](https://github.com/smturtle2/quoteflow/tree/main/docs/ko)
 
-`orderwave` is a compact Python library for simulating a state-conditioned aggregate limit order book.
+`orderwave` is a compact Python library for simulating a state-conditioned aggregate limit order book and visualizing the result directly from the same `Market` object.
 
-![orderwave overview](assets/orderwave-overview.png)
+![Overview](assets/orderwave-overview.png)
 
 ## Pages
 
@@ -13,19 +13,12 @@
 - [Examples](https://github.com/smturtle2/quoteflow/blob/main/docs/examples.md)
 - [Releasing](https://github.com/smturtle2/quoteflow/blob/main/docs/releasing.md)
 
-## Core Idea
+## Built-in Visualization
 
-The simulator treats price as an outcome, not a primary sampled process.
+- `Market.plot()` for the main overview figure
+- `Market.plot_book()` for the current order book on a real price axis
+- `Market.plot_diagnostics()` for spread, imbalance, volatility, and regime checks
 
-- Limit orders are placed from state-conditioned level distributions
-- Marketable flow reacts to book shape, hidden fair value, recent flow, and spread
-- Cancellations can deplete the best quote
-- Inside-spread improvement can tighten the market without a trade
-
-This keeps the resulting path anchored to order-book mechanics rather than a direct random walk.
-
-## Preview Gallery
-
-![Preset comparison](assets/orderwave-presets.png)
+![Current book](assets/orderwave-current-book.png)
 
 ![Diagnostics](assets/orderwave-diagnostics.png)

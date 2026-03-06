@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from collections import deque
-from typing import Mapping
+from typing import TYPE_CHECKING, Mapping
 
 import numpy as np
 import pandas as pd
@@ -22,6 +22,16 @@ from orderwave.model import (
     score_limit_levels,
 )
 from orderwave.utils import coerce_quantity, price_to_tick, tick_to_price
+from orderwave.visualization import (
+    VisualHistoryRow,
+    capture_visual_history_row,
+    plot_market_diagnostics,
+    plot_market_overview,
+    plot_order_book,
+)
+
+if TYPE_CHECKING:
+    from matplotlib.figure import Figure
 
 
 class Market:
@@ -80,6 +90,7 @@ class Market:
 
         self._book = OrderBook(self.tick_size)
         self._history = HistoryBuffer()
+        self._visual_history: list[VisualHistoryRow] = []
         self._step = 0
         self._debug_last_step_events: list[dict[str, object]] = []
 
@@ -281,6 +292,94 @@ class Market:
 
         return self._history.dataframe()
 
+    def plot(
+        self,
+        *,
+        levels: int | None = None,
+        title: str | None = None,
+        figsize: tuple[float, float] | None = None,
+    ) -> Figure:
+        """Render the built-in market overview figure.
+
+        Parameters
+        ----------
+        levels:
+            Visible bid/ask depth rows to include in the heatmap. Values above
+            the internal book buffer are clamped automatically.
+        title:
+            Optional figure title.
+        figsize:
+            Optional ``(width, height)`` in inches.
+        """
+
+        return plot_market_overview(
+            self.get_history(),
+            self._visual_history,
+            levels=self._resolve_plot_levels(levels),
+            title=title,
+            figsize=figsize,
+        )
+
+    def plot_book(
+        self,
+        *,
+        levels: int | None = None,
+        title: str | None = None,
+        figsize: tuple[float, float] | None = None,
+    ) -> Figure:
+        """Render the current order-book snapshot on a real price axis.
+
+        Parameters
+        ----------
+        levels:
+            Number of visible bid/ask levels to draw. Values above the internal
+            book buffer are clamped automatically.
+        title:
+            Optional figure title.
+        figsize:
+            Optional ``(width, height)`` in inches.
+        """
+
+        features = self._compute_features()
+        return plot_order_book(
+            self._book,
+            tick_size=self.tick_size,
+            levels=self._resolve_plot_levels(levels),
+            microprice=features.microprice,
+            title=title,
+            figsize=figsize,
+        )
+
+    def plot_diagnostics(
+        self,
+        *,
+        imbalance_bins: int = 8,
+        max_lag: int = 12,
+        title: str | None = None,
+        figsize: tuple[float, float] | None = None,
+    ) -> Figure:
+        """Render spread, imbalance, volatility, and regime diagnostics.
+
+        Parameters
+        ----------
+        imbalance_bins:
+            Number of bins used for the imbalance-to-next-return plot.
+        max_lag:
+            Maximum lag used for absolute-return autocorrelation.
+        title:
+            Optional figure title.
+        figsize:
+            Optional ``(width, height)`` in inches.
+        """
+
+        return plot_market_diagnostics(
+            self.get_history(),
+            imbalance_bins=imbalance_bins,
+            max_lag=max_lag,
+            title=title,
+            figsize=figsize,
+        )
+
     def _seed_initial_book(self, init_tick: int) -> None:
         best_bid_tick = max(0, init_tick)
         best_ask_tick = best_bid_tick + self._params.initial_spread_ticks
@@ -372,6 +471,19 @@ class Market:
             realized_vol=features.realized_vol,
             signed_flow=features.signed_flow,
         )
+        self._visual_history.append(
+            capture_visual_history_row(
+                self._book,
+                step=self._step,
+                depth=self.config.book_buffer_levels,
+            )
+        )
+
+    def _resolve_plot_levels(self, levels: int | None) -> int:
+        resolved = self.levels if levels is None else int(levels)
+        if resolved <= 0:
+            raise ValueError("levels must be positive")
+        return min(resolved, self.config.book_buffer_levels)
 
     def _build_snapshot(self, features: MarketFeatures) -> dict[str, object]:
         return {

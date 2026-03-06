@@ -2,67 +2,59 @@
 
 [문서 인덱스](https://github.com/smturtle2/quoteflow/blob/main/docs/ko/README.md) | [English](https://github.com/smturtle2/quoteflow/blob/main/docs/examples.md)
 
-## 빠른 진단
+## Built-in Overview Plot
 
 ```python
 from orderwave import Market
 
 market = Market(seed=7, config={"preset": "trend"})
-market.gen(steps=5_000)
-history = market.get_history()
+market.gen(steps=2_000)
 
-mid_ret = history["mid_price"].diff().fillna(0.0)
-abs_ret = mid_ret.abs()
-
-print("spread mean:", history["spread"].mean())
-print("imbalance -> next return corr:", history["depth_imbalance"].corr(mid_ret.shift(-1).fillna(0.0)))
-print("|return| lag-1 autocorr:", abs_ret.autocorr(lag=1))
+figure = market.plot(levels=8, title="orderwave overview")
+figure.savefig("orderwave-overview.png")
 ```
-
-## 가격 + 체결 강도 + Heatmap
-
-저장소에는 [`examples/plot_market_heatmap.py`](https://github.com/smturtle2/quoteflow/blob/main/examples/plot_market_heatmap.py) 예제가 포함되어 있습니다.
 
 ![Overview image](../assets/orderwave-overview.png)
 
-로컬 실행:
+## 현재 호가 스냅샷
 
-```bash
-pip install matplotlib
-python examples/plot_market_heatmap.py --steps 2000 --preset trend
+```python
+book_figure = market.plot_book(levels=8, title="Current order book")
+book_figure.savefig("orderwave-current-book.png")
 ```
 
-파일 저장:
+![Current book](../assets/orderwave-current-book.png)
+
+## Diagnostics
+
+```python
+diagnostics = market.plot_diagnostics(max_lag=12, title="Diagnostics")
+diagnostics.savefig("orderwave-diagnostics.png")
+```
+
+![Diagnostics snapshot](../assets/orderwave-diagnostics.png)
+
+이 built-in figure들은 서로 다른 질문에 답하도록 설계했습니다.
+
+- 시뮬레이터가 어떤 경로를 만들었는가?
+- 현재 호가장은 어떤 모양인가?
+- 생성된 경로가 유용한 미시구조 신호를 갖는가?
+
+## CLI 예제
+
+저장소에는 [`examples/plot_market_heatmap.py`](https://github.com/smturtle2/quoteflow/blob/main/examples/plot_market_heatmap.py) 예제가 있고, 이제 내부적으로 `Market.plot()`을 직접 호출합니다.
 
 ```bash
 python examples/plot_market_heatmap.py --steps 2000 --preset trend --output artifacts/orderwave_heatmap.png
 ```
 
-예제는 다음을 렌더링합니다.
-
-- `mid_price`, `last_price`
-- `trade_strength`
-- `ask n ... ask 1, bid 1 ... bid n` 구조의 signed visible-book heatmap
-
-heatmap은 signed depth를 유지하면서 0은 정확히 검은색으로 렌더링합니다.
-
 ## Preset 비교
 
 ![Preset comparison](../assets/orderwave-presets.png)
 
-같은 seed와 비슷한 조건에서 preset만 바꿔서 돌리면 어떤 체감 차이가 생기는지 빠르게 볼 수 있습니다.
+preset comparison 그림은 문서 전용이지만, 동일한 public simulation API를 다른 preset으로 실행해 생성합니다.
 
-## 진단 스냅샷
-
-![Diagnostics snapshot](../assets/orderwave-diagnostics.png)
-
-이 이미지는 synthetic market path를 볼 때 자주 확인하는 세 가지를 묶어 보여줍니다.
-
-- spread가 단일값에 고정되지 않는지
-- depth imbalance가 다음 움직임에 방향 정보를 주는지
-- 절대수익률이 양의 자기상관을 가지는지
-
-문서 이미지를 다시 만들려면:
+## 문서 이미지 다시 생성
 
 ```bash
 python scripts/render_doc_images.py

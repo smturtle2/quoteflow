@@ -2,9 +2,9 @@
 
 [English Docs](https://github.com/smturtle2/quoteflow/tree/main/docs) | [한국어 README](https://github.com/smturtle2/quoteflow/blob/main/README.ko.md)
 
-`orderwave`는 상태조건부 aggregate limit order book을 시뮬레이션하는 간결한 파이썬 라이브러리입니다.
+`orderwave`는 상태조건부 aggregate limit order book을 시뮬레이션하고, 같은 `Market` 객체에서 결과를 바로 시각화할 수 있는 파이썬 라이브러리입니다.
 
-![orderwave overview](../assets/orderwave-overview.png)
+![Overview](../assets/orderwave-overview.png)
 
 ## 문서 목록
 
@@ -13,19 +13,12 @@
 - [예제](https://github.com/smturtle2/quoteflow/blob/main/docs/ko/examples.md)
 - [릴리스](https://github.com/smturtle2/quoteflow/blob/main/docs/ko/releasing.md)
 
-## 핵심 아이디어
+## 내장 시각화
 
-이 시뮬레이터는 가격을 원인으로 두지 않고 결과로 둡니다.
+- `Market.plot()`으로 메인 overview figure 렌더
+- `Market.plot_book()`으로 현재 order book을 실제 가격축으로 렌더
+- `Market.plot_diagnostics()`로 spread, imbalance, volatility, regime 진단 렌더
 
-- 지정가 주문은 상태조건부 레벨 분포에서 생성됩니다
-- 시장가성 주문은 호가장 구조, hidden fair value, 최근 흐름, 스프레드에 반응합니다
-- 취소는 최우선 호가를 소진시킬 수 있습니다
-- inside-spread 개선호가는 체결 없이도 스프레드를 줄일 수 있습니다
-
-즉, 결과 가격 경로는 직접 random walk 된 값이 아니라 호가장 변화의 산물입니다.
-
-## 미리 보기
-
-![Preset comparison](../assets/orderwave-presets.png)
+![Current book](../assets/orderwave-current-book.png)
 
 ![Diagnostics](../assets/orderwave-diagnostics.png)

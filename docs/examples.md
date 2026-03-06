@@ -2,67 +2,59 @@
 
 [Docs index](https://github.com/smturtle2/quoteflow/blob/main/docs/README.md) | [한국어](https://github.com/smturtle2/quoteflow/blob/main/docs/ko/examples.md)
 
-## Quick Diagnostics
+## Built-in Overview Plot
 
 ```python
 from orderwave import Market
 
 market = Market(seed=7, config={"preset": "trend"})
-market.gen(steps=5_000)
-history = market.get_history()
+market.gen(steps=2_000)
 
-mid_ret = history["mid_price"].diff().fillna(0.0)
-abs_ret = mid_ret.abs()
-
-print("spread mean:", history["spread"].mean())
-print("imbalance -> next return corr:", history["depth_imbalance"].corr(mid_ret.shift(-1).fillna(0.0)))
-print("|return| lag-1 autocorr:", abs_ret.autocorr(lag=1))
+figure = market.plot(levels=8, title="orderwave overview")
+figure.savefig("orderwave-overview.png")
 ```
-
-## Price + Trade Strength + Heatmap
-
-The repository includes [`examples/plot_market_heatmap.py`](https://github.com/smturtle2/quoteflow/blob/main/examples/plot_market_heatmap.py).
 
 ![Overview image](assets/orderwave-overview.png)
 
-Run it locally:
+## Current Book Snapshot
 
-```bash
-pip install matplotlib
-python examples/plot_market_heatmap.py --steps 2000 --preset trend
+```python
+book_figure = market.plot_book(levels=8, title="Current order book")
+book_figure.savefig("orderwave-current-book.png")
 ```
 
-Save output:
+![Current book](assets/orderwave-current-book.png)
+
+## Diagnostics
+
+```python
+diagnostics = market.plot_diagnostics(max_lag=12, title="Diagnostics")
+diagnostics.savefig("orderwave-diagnostics.png")
+```
+
+![Diagnostics snapshot](assets/orderwave-diagnostics.png)
+
+These built-in figures are meant to answer three different questions quickly:
+
+- what path did the simulator generate?
+- what does the current book look like?
+- does the path have useful microstructure signals?
+
+## CLI Example
+
+The repository includes [`examples/plot_market_heatmap.py`](https://github.com/smturtle2/quoteflow/blob/main/examples/plot_market_heatmap.py), which now calls `Market.plot()` directly.
 
 ```bash
 python examples/plot_market_heatmap.py --steps 2000 --preset trend --output artifacts/orderwave_heatmap.png
 ```
 
-The example renders:
-
-- `mid_price` and `last_price`
-- `trade_strength`
-- a signed visible-book heatmap with `ask n ... ask 1, bid 1 ... bid n`
-
-The heatmap keeps signed depth in the color scale while rendering zero exactly as black.
-
 ## Preset Comparison
 
 ![Preset comparison](assets/orderwave-presets.png)
 
-This figure is generated from the same simulator with different presets and the same seed so the behavioral differences stay easy to compare.
+Preset comparison remains a docs-only figure generated from the same public simulation API with different presets.
 
-## Diagnostics Snapshot
-
-![Diagnostics snapshot](assets/orderwave-diagnostics.png)
-
-This image summarizes three useful checks for a synthetic market path:
-
-- spread is not locked to a single value
-- depth imbalance has directional information about the next move
-- absolute returns show persistence through positive autocorrelation
-
-To regenerate the documentation images:
+## Regenerating Docs Images
 
 ```bash
 python scripts/render_doc_images.py
