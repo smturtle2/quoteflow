@@ -8,9 +8,9 @@ Order-flow-driven synthetic market simulation for Python, with built-in visualiz
 
 `orderwave` does not random-walk price directly. It simulates a sparse limit order book, stochastic limit arrivals, marketable flow, cancellations, and inside-spread quote improvement, then lets price emerge from those book changes. The same `Market` object can also render the path, the current book snapshot, and microstructure diagnostics without extra plotting glue.
 
-[English Docs](https://github.com/smturtle2/quoteflow/tree/main/docs) | [한국어 README](https://github.com/smturtle2/quoteflow/blob/main/README.ko.md) | [한국어 문서](https://github.com/smturtle2/quoteflow/tree/main/docs/ko)
+[English Docs](https://github.com/smturtle2/quoteflow/tree/main/docs/en) | [한국어 README](https://github.com/smturtle2/quoteflow/blob/main/README.ko.md) | [한국어 문서](https://github.com/smturtle2/quoteflow/tree/main/docs/ko)
 
-![orderwave overview](https://raw.githubusercontent.com/smturtle2/quoteflow/main/docs/assets/orderwave-overview.png)
+![orderwave overview](https://raw.githubusercontent.com/smturtle2/quoteflow/main/docs/assets/orderwave-built-in-overview.png)
 
 ## Why orderwave
 
@@ -91,21 +91,21 @@ diagnostics = market.plot_diagnostics()
 
 ### Overview
 
-![orderwave overview](https://raw.githubusercontent.com/smturtle2/quoteflow/main/docs/assets/orderwave-overview.png)
+![orderwave overview](https://raw.githubusercontent.com/smturtle2/quoteflow/main/docs/assets/orderwave-built-in-overview.png)
 
 ### Current Book Snapshot
 
-![orderwave current book](https://raw.githubusercontent.com/smturtle2/quoteflow/main/docs/assets/orderwave-current-book.png)
+![orderwave current book](https://raw.githubusercontent.com/smturtle2/quoteflow/main/docs/assets/orderwave-built-in-current-book.png)
 
 ### Diagnostics
 
-![orderwave diagnostics](https://raw.githubusercontent.com/smturtle2/quoteflow/main/docs/assets/orderwave-diagnostics.png)
+![orderwave diagnostics](https://raw.githubusercontent.com/smturtle2/quoteflow/main/docs/assets/orderwave-built-in-diagnostics.png)
 
 The overview heatmap keeps signed depth. Ask liquidity is red, bid liquidity is blue, `0` maps to a light gray midpoint, and missing levels render as blank background instead of black cells.
 
 ## Presets At A Glance
 
-![orderwave presets](https://raw.githubusercontent.com/smturtle2/quoteflow/main/docs/assets/orderwave-presets.png)
+![orderwave presets](https://raw.githubusercontent.com/smturtle2/quoteflow/main/docs/assets/orderwave-built-in-presets.png)
 
 `balanced`, `trend`, and `volatile` reuse the same public API while shifting spread behavior, flow pressure, cancellation pressure, and hidden fair-price dynamics.
 
@@ -120,11 +120,11 @@ Important distinction:
 
 ## Docs
 
-- [Documentation index](https://github.com/smturtle2/quoteflow/blob/main/docs/README.md)
-- [Getting started](https://github.com/smturtle2/quoteflow/blob/main/docs/getting-started.md)
-- [API reference](https://github.com/smturtle2/quoteflow/blob/main/docs/api.md)
-- [Examples](https://github.com/smturtle2/quoteflow/blob/main/docs/examples.md)
-- [Release guide](https://github.com/smturtle2/quoteflow/blob/main/docs/releasing.md)
+- [Documentation index](https://github.com/smturtle2/quoteflow/blob/main/docs/en/README.md)
+- [Getting started](https://github.com/smturtle2/quoteflow/blob/main/docs/en/getting-started.md)
+- [API reference](https://github.com/smturtle2/quoteflow/blob/main/docs/en/api.md)
+- [Examples](https://github.com/smturtle2/quoteflow/blob/main/docs/en/examples.md)
+- [Release guide](https://github.com/smturtle2/quoteflow/blob/main/docs/en/releasing.md)
 - [한국어 문서 인덱스](https://github.com/smturtle2/quoteflow/blob/main/docs/ko/README.md)
 
 ## Design Guarantees

@@ -8,9 +8,9 @@
 
 `orderwave`는 가격을 직접 random walk 하지 않습니다. 희소한 지정가 호가장, 신규 지정가 유입, 시장가성 공격 주문, 취소, 스프레드 안쪽 개선호가를 시뮬레이션하고, 그 결과로 가격이 형성되게 만듭니다. 같은 `Market` 객체에서 경로, 현재 호가 스냅샷, 미시구조 진단까지 바로 그릴 수 있습니다.
 
-[English README](https://github.com/smturtle2/quoteflow/blob/main/README.md) | [English Docs](https://github.com/smturtle2/quoteflow/tree/main/docs) | [한국어 문서](https://github.com/smturtle2/quoteflow/tree/main/docs/ko)
+[English README](https://github.com/smturtle2/quoteflow/blob/main/README.md) | [English Docs](https://github.com/smturtle2/quoteflow/tree/main/docs/en) | [한국어 문서](https://github.com/smturtle2/quoteflow/tree/main/docs/ko)
 
-![orderwave overview](docs/assets/orderwave-overview.png)
+![orderwave overview](docs/assets/orderwave-built-in-overview.png)
 
 ## 왜 orderwave인가
 
@@ -91,21 +91,21 @@ diagnostics = market.plot_diagnostics()
 
 ### Overview
 
-![orderwave overview](docs/assets/orderwave-overview.png)
+![orderwave overview](docs/assets/orderwave-built-in-overview.png)
 
 ### 현재 호가 스냅샷
 
-![orderwave current book](docs/assets/orderwave-current-book.png)
+![orderwave current book](docs/assets/orderwave-built-in-current-book.png)
 
 ### Diagnostics
 
-![orderwave diagnostics](docs/assets/orderwave-diagnostics.png)
+![orderwave diagnostics](docs/assets/orderwave-built-in-diagnostics.png)
 
 overview heatmap은 signed depth를 유지합니다. ask는 빨강, bid는 파랑, `0`은 연회색 midpoint, 존재하지 않는 레벨은 검은색이 아니라 blank background로 렌더링합니다.
 
 ## Preset 비교
 
-![orderwave presets](docs/assets/orderwave-presets.png)
+![orderwave presets](docs/assets/orderwave-built-in-presets.png)
 
 `balanced`, `trend`, `volatile` preset은 같은 API를 유지하면서 스프레드 성향, 주문흐름 압력, 취소 압력, hidden fair-price 동학을 다르게 만듭니다.
 

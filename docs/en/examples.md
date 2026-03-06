@@ -1,6 +1,6 @@
 # Examples
 
-[Docs index](https://github.com/smturtle2/quoteflow/blob/main/docs/README.md) | [한국어](https://github.com/smturtle2/quoteflow/blob/main/docs/ko/examples.md)
+[Docs index](https://github.com/smturtle2/quoteflow/blob/main/docs/en/README.md) | [한국어](https://github.com/smturtle2/quoteflow/blob/main/docs/ko/examples.md)
 
 ## Built-in Overview Plot
 
@@ -14,7 +14,7 @@ figure = market.plot(levels=8, title="orderwave overview")
 figure.savefig("orderwave-overview.png")
 ```
 
-![Overview image](assets/orderwave-overview.png)
+![Overview image](../assets/orderwave-built-in-overview.png)
 
 ## Current Book Snapshot
 
@@ -23,7 +23,7 @@ book_figure = market.plot_book(levels=8, title="Current order book")
 book_figure.savefig("orderwave-current-book.png")
 ```
 
-![Current book](assets/orderwave-current-book.png)
+![Current book](../assets/orderwave-built-in-current-book.png)
 
 ## Diagnostics
 
@@ -32,7 +32,7 @@ diagnostics = market.plot_diagnostics(max_lag=12, title="Diagnostics")
 diagnostics.savefig("orderwave-diagnostics.png")
 ```
 
-![Diagnostics snapshot](assets/orderwave-diagnostics.png)
+![Diagnostics snapshot](../assets/orderwave-built-in-diagnostics.png)
 
 These built-in figures are meant to answer three different questions quickly:
 
@@ -42,7 +42,7 @@ These built-in figures are meant to answer three different questions quickly:
 
 ## CLI Example
 
-The repository includes [`examples/plot_market_heatmap.py`](https://github.com/smturtle2/quoteflow/blob/main/examples/plot_market_heatmap.py), which now calls `Market.plot()` directly.
+The repository includes [`examples/plot_market_heatmap.py`](https://github.com/smturtle2/quoteflow/blob/main/examples/plot_market_heatmap.py), which calls `Market.plot()` directly.
 
 ```bash
 python examples/plot_market_heatmap.py --steps 2000 --preset trend --output artifacts/orderwave_heatmap.png
@@ -50,7 +50,7 @@ python examples/plot_market_heatmap.py --steps 2000 --preset trend --output arti
 
 ## Preset Comparison
 
-![Preset comparison](assets/orderwave-presets.png)
+![Preset comparison](../assets/orderwave-built-in-presets.png)
 
 Preset comparison remains a docs-only figure generated from the same public simulation API with different presets.
 

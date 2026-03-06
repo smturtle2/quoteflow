@@ -44,7 +44,7 @@ def main() -> None:
         title="Order flow becomes price",
         figsize=(15, 10.5),
     )
-    overview_figure.savefig(args.outdir / "orderwave-overview.png", dpi=180, bbox_inches="tight")
+    overview_figure.savefig(args.outdir / "orderwave-built-in-overview.png", dpi=180, bbox_inches="tight")
     plt.close(overview_figure)
 
     current_book_figure = overview_market.plot_book(
@@ -52,7 +52,7 @@ def main() -> None:
         title="Current order book snapshot",
         figsize=(11, 7),
     )
-    current_book_figure.savefig(args.outdir / "orderwave-current-book.png", dpi=180, bbox_inches="tight")
+    current_book_figure.savefig(args.outdir / "orderwave-built-in-current-book.png", dpi=180, bbox_inches="tight")
     plt.close(current_book_figure)
 
     diagnostics_market = build_market(preset="balanced", seed=9, steps=4_000, levels=6)
@@ -60,7 +60,7 @@ def main() -> None:
         title="Microstructure diagnostics",
         figsize=(14, 8.5),
     )
-    diagnostics_figure.savefig(args.outdir / "orderwave-diagnostics.png", dpi=180, bbox_inches="tight")
+    diagnostics_figure.savefig(args.outdir / "orderwave-built-in-diagnostics.png", dpi=180, bbox_inches="tight")
     plt.close(diagnostics_figure)
 
     preset_histories = {
@@ -73,7 +73,7 @@ def main() -> None:
         title="Preset behaviors at a glance",
         figsize=(16, 4.8),
     )
-    preset_figure.savefig(args.outdir / "orderwave-presets.png", dpi=180, bbox_inches="tight")
+    preset_figure.savefig(args.outdir / "orderwave-built-in-presets.png", dpi=180, bbox_inches="tight")
     plt.close(preset_figure)
 
     print(f"rendered documentation images to {args.outdir}")

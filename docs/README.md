@@ -1,24 +1,10 @@
 # orderwave Docs
 
-[README](https://github.com/smturtle2/quoteflow/blob/main/README.md) | [한국어 문서](https://github.com/smturtle2/quoteflow/tree/main/docs/ko)
+[README](https://github.com/smturtle2/quoteflow/blob/main/README.md)
 
-`orderwave` is a compact Python library for simulating a state-conditioned aggregate limit order book and visualizing the result directly from the same `Market` object.
+Choose a language:
 
-![Overview](assets/orderwave-overview.png)
+- [English docs](https://github.com/smturtle2/quoteflow/blob/main/docs/en/README.md)
+- [한국어 문서](https://github.com/smturtle2/quoteflow/blob/main/docs/ko/README.md)
 
-## Pages
-
-- [Getting started](https://github.com/smturtle2/quoteflow/blob/main/docs/getting-started.md)
-- [API reference](https://github.com/smturtle2/quoteflow/blob/main/docs/api.md)
-- [Examples](https://github.com/smturtle2/quoteflow/blob/main/docs/examples.md)
-- [Releasing](https://github.com/smturtle2/quoteflow/blob/main/docs/releasing.md)
-
-## Built-in Visualization
-
-- `Market.plot()` for the main overview figure
-- `Market.plot_book()` for the current order book on a real price axis
-- `Market.plot_diagnostics()` for spread, imbalance, volatility, and regime checks
-
-![Current book](assets/orderwave-current-book.png)
-
-![Diagnostics](assets/orderwave-diagnostics.png)
+Shared generated assets live in [`docs/assets`](https://github.com/smturtle2/quoteflow/tree/main/docs/assets).

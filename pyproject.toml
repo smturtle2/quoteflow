@@ -27,7 +27,7 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/smturtle2/quoteflow"
-Documentation = "https://github.com/smturtle2/quoteflow/tree/main/docs"
+Documentation = "https://github.com/smturtle2/quoteflow/tree/main/docs/en"
 Repository = "https://github.com/smturtle2/quoteflow"
 Issues = "https://github.com/smturtle2/quoteflow/issues"
 

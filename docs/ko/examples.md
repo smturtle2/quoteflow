@@ -1,6 +1,6 @@
 # 예제
 
-[문서 인덱스](https://github.com/smturtle2/quoteflow/blob/main/docs/ko/README.md) | [English](https://github.com/smturtle2/quoteflow/blob/main/docs/examples.md)
+[문서 인덱스](https://github.com/smturtle2/quoteflow/blob/main/docs/ko/README.md) | [English](https://github.com/smturtle2/quoteflow/blob/main/docs/en/examples.md)
 
 ## Built-in Overview Plot
 
@@ -14,7 +14,7 @@ figure = market.plot(levels=8, title="orderwave overview")
 figure.savefig("orderwave-overview.png")
 ```
 
-![Overview image](../assets/orderwave-overview.png)
+![Overview image](../assets/orderwave-built-in-overview.png)
 
 ## 현재 호가 스냅샷
 
@@ -23,7 +23,7 @@ book_figure = market.plot_book(levels=8, title="Current order book")
 book_figure.savefig("orderwave-current-book.png")
 ```
 
-![Current book](../assets/orderwave-current-book.png)
+![Current book](../assets/orderwave-built-in-current-book.png)
 
 ## Diagnostics
 
@@ -32,7 +32,7 @@ diagnostics = market.plot_diagnostics(max_lag=12, title="Diagnostics")
 diagnostics.savefig("orderwave-diagnostics.png")
 ```
 
-![Diagnostics snapshot](../assets/orderwave-diagnostics.png)
+![Diagnostics snapshot](../assets/orderwave-built-in-diagnostics.png)
 
 이 built-in figure들은 서로 다른 질문에 답하도록 설계했습니다.
 
@@ -50,7 +50,7 @@ python examples/plot_market_heatmap.py --steps 2000 --preset trend --output arti
 
 ## Preset 비교
 
-![Preset comparison](../assets/orderwave-presets.png)
+![Preset comparison](../assets/orderwave-built-in-presets.png)
 
 preset comparison 그림은 문서 전용이지만, 동일한 public simulation API를 다른 preset으로 실행해 생성합니다.
 

@@ -117,8 +117,8 @@ def test_cli_examples_render_with_agg_backend(tmp_path: Path) -> None:
 
     assert render_docs.returncode == 0, render_docs.stderr
     assert render_example.returncode == 0, render_example.stderr
-    assert (doc_out / "orderwave-overview.png").exists()
-    assert (doc_out / "orderwave-current-book.png").exists()
-    assert (doc_out / "orderwave-diagnostics.png").exists()
-    assert (doc_out / "orderwave-presets.png").exists()
+    assert (doc_out / "orderwave-built-in-overview.png").exists()
+    assert (doc_out / "orderwave-built-in-current-book.png").exists()
+    assert (doc_out / "orderwave-built-in-diagnostics.png").exists()
+    assert (doc_out / "orderwave-built-in-presets.png").exists()
     assert plot_out.exists()
