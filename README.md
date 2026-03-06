@@ -42,27 +42,17 @@ market.gen(steps=1_000)
 
 snapshot = market.get()
 history = market.get_history()
-figure = market.plot()
+overview = market.plot()
+book = market.plot_book()
+diagnostics = market.plot_diagnostics()
 
 print(snapshot["mid_price"], snapshot["best_bid"], snapshot["best_ask"])
 print(history.tail())
 
-figure.savefig("orderwave-overview.png")
+overview.savefig("orderwave-overview.png")
 ```
 
-## Public API
-
-```python
-from orderwave import Market
-
-market = Market(
-    init_price=100.0,
-    tick_size=0.01,
-    levels=5,
-    seed=42,
-    config={"preset": "balanced"},
-)
-```
+## API Surface
 
 | API | Purpose |
 | --- | --- |
@@ -78,26 +68,13 @@ Advanced configuration is available through `orderwave.config.MarketConfig`.
 
 ## Built-in Visualization
 
-`Market.plot()` is the default overview figure. It combines the quote-driven path, last-trade path, trade strength, and a signed visible-depth heatmap.
+All plotting methods return `matplotlib.figure.Figure` and leave save/show control to the caller.
 
-```python
-market = Market(seed=42)
-market.gen(steps=1_000)
-
-overview = market.plot()
-book = market.plot_book()
-diagnostics = market.plot_diagnostics()
-```
-
-### Overview
-
-![orderwave overview](https://raw.githubusercontent.com/smturtle2/quoteflow/main/docs/assets/orderwave-built-in-overview.png)
-
-### Current Book Snapshot
+- `plot()` renders the main overview: price, spread, trade strength, and signed visible-depth heatmap
+- `plot_book()` renders the current order book on a real price axis
+- `plot_diagnostics()` renders spread, imbalance, volatility, and regime diagnostics
 
 ![orderwave current book](https://raw.githubusercontent.com/smturtle2/quoteflow/main/docs/assets/orderwave-built-in-current-book.png)
-
-### Diagnostics
 
 ![orderwave diagnostics](https://raw.githubusercontent.com/smturtle2/quoteflow/main/docs/assets/orderwave-built-in-diagnostics.png)
 
@@ -109,7 +86,7 @@ The overview heatmap keeps signed depth. Ask liquidity is red, bid liquidity is 
 
 `balanced`, `trend`, and `volatile` reuse the same public API while shifting spread behavior, flow pressure, cancellation pressure, and hidden fair-price dynamics.
 
-## Snapshot Semantics
+## Core Semantics
 
 `Market.get()` returns a compact dictionary with prices, spread, visible depth, aggressive volume, trade strength, depth imbalance, and regime.
 
@@ -117,6 +94,13 @@ Important distinction:
 
 - `mid_price` can move when quotes improve, cancel, or get depleted
 - `last_price` only changes when a trade actually executes
+
+Core guarantees:
+
+- Price is never random-walked directly
+- Quote improvement, best-quote depletion, and market execution are the only price-moving mechanisms
+- Visible history starts at `step == 0` with the seeded initial book
+- Aggregate depth is modeled without exposing per-order FIFO complexity in v1
 
 ## Docs
 
@@ -126,10 +110,3 @@ Important distinction:
 - [Examples](https://github.com/smturtle2/quoteflow/blob/main/docs/en/examples.md)
 - [Release guide](https://github.com/smturtle2/quoteflow/blob/main/docs/en/releasing.md)
 - [한국어 문서 인덱스](https://github.com/smturtle2/quoteflow/blob/main/docs/ko/README.md)
-
-## Design Guarantees
-
-- Price is never random-walked directly
-- Quote improvement, best-quote depletion, and market execution are the only price-moving mechanisms
-- Visible history starts at `step == 0` with the seeded initial book
-- Aggregate depth is modeled without exposing per-order FIFO complexity in v1
