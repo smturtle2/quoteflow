@@ -1,34 +1,19 @@
 # orderwave
 
-`orderwave` is a microstructure-first synthetic market simulator.
+`orderwave` is an order-flow-driven market simulator.
 
-It does not random walk price. It generates stochastic order flow and limit-order-book updates, then lets price emerge from executions, cancellations, and inside-spread quote improvement.
-
-## Why `orderwave`
-
-- Public API stays extremely small: `from orderwave import Market`
-- Price is an outcome of book dynamics, not a directly sampled process
-- Internal engine models limit arrivals, marketable flow, cancellations, hidden fair value, and regime shifts
-- Same seed produces the same path
+It does not random-walk price directly. Instead, it simulates a limit order book with stochastic limit arrivals, marketable flow, cancellations, and inside-spread quote improvement, then lets price emerge from those book changes.
 
 ## Installation
 
-Install from source:
-
 ```bash
-pip install -e .
+pip install orderwave
 ```
 
-Install with test dependencies:
+For local development:
 
 ```bash
 pip install -e .[dev]
-```
-
-Once published:
-
-```bash
-pip install orderwave
 ```
 
 ## Quick Start
@@ -48,7 +33,14 @@ print(snapshot["mid_price"], snapshot["best_bid"], snapshot["best_ask"])
 print(history.tail())
 ```
 
-## Public API
+## Why orderwave
+
+- Minimal public API: `from orderwave import Market`
+- Price is an outcome of book dynamics, not a separately sampled process
+- Hidden fair value and regime shifts bias order flow without directly overwriting price
+- Deterministic paths under the same seed
+
+## API
 
 ```python
 from orderwave import Market
@@ -62,12 +54,12 @@ market = Market(
 )
 ```
 
-Available methods:
+Methods:
 
-- `step()` -> advance one micro-batch and return the latest snapshot
-- `gen(steps=n)` -> advance `n` steps and return the latest snapshot
-- `get()` -> return the current snapshot
-- `get_history()` -> return compact history as a `pandas.DataFrame`
+- `step()` returns the latest snapshot after one micro-batch
+- `gen(steps=n)` advances `n` steps and returns the latest snapshot
+- `get()` returns the current snapshot
+- `get_history()` returns a compact `pandas.DataFrame`
 
 Supported presets:
 
@@ -77,46 +69,50 @@ Supported presets:
 
 `config` accepts either a plain `dict` or `orderwave.config.MarketConfig`.
 
-## Snapshot Shape
+## Snapshot
 
-`Market.get()` returns a dictionary with:
+`Market.get()` returns:
 
-- `step`
-- `last_price`
-- `mid_price`
-- `microprice`
-- `best_bid`
-- `best_ask`
-- `spread`
-- `bids`
-- `asks`
-- `last_trade_side`
-- `last_trade_qty`
-- `buy_aggr_volume`
-- `sell_aggr_volume`
-- `trade_strength`
-- `depth_imbalance`
-- `regime`
+```python
+{
+    "step": int,
+    "last_price": float,
+    "mid_price": float,
+    "microprice": float,
+    "best_bid": float,
+    "best_ask": float,
+    "spread": float,
+    "bids": [{"price": float, "qty": float}, ...],
+    "asks": [{"price": float, "qty": float}, ...],
+    "last_trade_side": "buy" | "sell" | None,
+    "last_trade_qty": float,
+    "buy_aggr_volume": float,
+    "sell_aggr_volume": float,
+    "trade_strength": float,
+    "depth_imbalance": float,
+    "regime": str,
+}
+```
 
-`last_price` is the last trade price. If the book moves without a trade, `mid_price` can change while `last_price` stays fixed.
+`last_price` is the last executed trade price. If the book changes without a trade, `mid_price` can move while `last_price` stays fixed.
 
-## Model Outline
+## Model
 
-Each `step()` is treated as a micro-batch:
+Each `step()` is a micro-batch:
 
 1. Compute state features from the current book
-2. Update the market regime: `calm`, `directional`, or `stressed`
+2. Update regime: `calm`, `directional`, or `stressed`
 3. Update hidden fair value
-4. Sample new limit orders, marketable flow, and cancellations
+4. Sample limit orders, marketable flow, and cancellations
 5. Shuffle events and apply them to the book
-6. Record a snapshot and a compact history row
+6. Record the snapshot and compact history row
 
 Price moves only through book mechanics:
 
 - market buy removes ask liquidity
 - market sell removes bid liquidity
-- cancellation removes the best quote
-- a new order improves the quote inside the spread
+- cancellation depletes the best quote
+- a new limit order improves the quote inside the spread
 
 ## Diagnostics Example
 
@@ -138,29 +134,28 @@ print("imbalance -> next return corr:", imbalance_lead_corr)
 print("|return| lag-1 autocorr:", vol_cluster)
 ```
 
-## Benchmark
+## Maintainer Release
 
-Run the benchmark helper:
+PyPI publishing is wired through [`workflow.yml`](https://github.com/smturtle2/quoteflow/blob/main/.github/workflows/workflow.yml).
 
-```bash
-python benchmarks/benchmark.py --steps 100000 --preset balanced
-```
+On 2026-03-06, [GitHub Actions release event docs](https://docs.github.com/en/actions/using-workflows/events-that-trigger-workflows#release) document that `release.types: [published]` triggers when a release is published, while drafts themselves do not trigger workflows. [PyPI trusted publishing docs](https://docs.pypi.org/trusted-publishers/using-a-publisher/) document the `id-token: write` flow used by the publish job.
 
-## PyPI Release Workflow
+Release flow:
 
-This repository includes `.github/workflows/workflow.yml` for CI and PyPI publishing.
+1. Update `version` in `pyproject.toml`
+2. Commit and push to `main`
+3. In GitHub, open `Releases`
+4. Click `Draft a new release`
+5. Create a tag like `v0.1.0`
+6. Set the release title, then click `Publish release`
+7. GitHub Actions runs tests, builds the distributions, and publishes to PyPI
 
-The workflow:
+Trusted Publisher settings for PyPI:
 
-- runs tests on pushes and pull requests
-- builds sdist and wheel artifacts
-- publishes to PyPI only when a GitHub Release is published
+- PyPI project name: `orderwave`
+- Repository owner: `smturtle2`
+- Repository name: `quoteflow`
+- Workflow filename: `.github/workflows/workflow.yml`
+- Environment name: `pypi`
 
-To enable trusted publishing on PyPI, configure a GitHub trusted publisher for:
-
-- repository owner: `smturtle2`
-- repository name: `quoteflow`
-- workflow filename: `.github/workflows/workflow.yml`
-- environment name: `pypi`
-
-If the PyPI project does not exist yet, create a pending publisher for the project name `orderwave` before the first release.
+If `orderwave` does not exist on PyPI yet, create the project through a pending publisher first. PyPI notes that a pending publisher does not reserve the name until the first successful publish.
