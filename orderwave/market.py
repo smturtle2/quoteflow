@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Public market simulator API."""
+
 import math
 from collections import deque
 from typing import Mapping
@@ -23,6 +25,22 @@ from orderwave.utils import coerce_quantity, price_to_tick, tick_to_price
 
 
 class Market:
+    """Order-flow-driven synthetic market simulator.
+
+    `Market` exposes a deliberately small public API while the internal engine
+    models a sparse aggregate limit order book, stochastic order arrivals,
+    marketable flow, cancellations, inside-spread quote improvement, a hidden
+    fair-price process, and regime switching.
+
+    Examples
+    --------
+    >>> from orderwave import Market
+    >>> market = Market(seed=42)
+    >>> _ = market.gen(steps=1_000)
+    >>> snapshot = market.get()
+    >>> history = market.get_history()
+    """
+
     def __init__(
         self,
         init_price: float = 100.0,
@@ -31,6 +49,23 @@ class Market:
         seed: int | None = None,
         config: MarketConfig | Mapping[str, object] | None = None,
     ) -> None:
+        """Create a new simulator instance.
+
+        Parameters
+        ----------
+        init_price:
+            Initial reference price. It is snapped to the nearest tick.
+        tick_size:
+            Price increment used by the internal book.
+        levels:
+            Number of visible bid/ask levels returned by ``get()``.
+        seed:
+            Optional NumPy random seed for deterministic replay.
+        config:
+            Either an ``orderwave.config.MarketConfig`` instance or a plain
+            mapping with the same fields.
+        """
+
         if tick_size <= 0.0:
             raise ValueError("tick_size must be positive")
         if levels <= 0:
@@ -65,6 +100,18 @@ class Market:
         self._record_current_state()
 
     def step(self) -> dict[str, object]:
+        """Advance the simulator by one micro-batch.
+
+        A step samples limit orders, marketable orders, and cancellations from
+        state-conditioned distributions, shuffles those events, applies them to
+        the book, records the resulting snapshot, and returns that snapshot.
+
+        Returns
+        -------
+        dict[str, object]
+            The latest market snapshot.
+        """
+
         previous_features = self._compute_features()
         previous_mid_price = previous_features.mid_price
 
@@ -194,6 +241,19 @@ class Market:
         return self.get()
 
     def gen(self, steps: int) -> dict[str, object]:
+        """Advance the simulator by ``steps`` micro-batches.
+
+        Parameters
+        ----------
+        steps:
+            Number of steps to execute. Must be non-negative.
+
+        Returns
+        -------
+        dict[str, object]
+            The latest market snapshot after the final step.
+        """
+
         if steps < 0:
             raise ValueError("steps must be non-negative")
         for _ in range(int(steps)):
@@ -201,9 +261,24 @@ class Market:
         return self.get()
 
     def get(self) -> dict[str, object]:
+        """Return the current market snapshot.
+
+        The snapshot includes prices, spread, visible depth, recent aggressive
+        flow, trade strength, depth imbalance, and the active regime.
+        """
+
         return self._history.current()
 
     def get_history(self) -> pd.DataFrame:
+        """Return the compact history recorded so far.
+
+        Returns
+        -------
+        pandas.DataFrame
+            One row per simulator step, including the initial seeded state at
+            ``step == 0``.
+        """
+
         return self._history.dataframe()
 
     def _seed_initial_book(self, init_tick: int) -> None:

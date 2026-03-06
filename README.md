@@ -1,8 +1,24 @@
 # orderwave
 
-`orderwave` is an order-flow-driven market simulator.
+[![PyPI version](https://img.shields.io/pypi/v/orderwave.svg)](https://pypi.org/project/orderwave/)
+[![Python versions](https://img.shields.io/pypi/pyversions/orderwave.svg)](https://pypi.org/project/orderwave/)
+[![Release workflow](https://github.com/smturtle2/quoteflow/actions/workflows/workflow.yml/badge.svg)](https://github.com/smturtle2/quoteflow/actions/workflows/workflow.yml)
 
-It does not random-walk price directly. Instead, it simulates a limit order book with stochastic limit arrivals, marketable flow, cancellations, and inside-spread quote improvement, then lets price emerge from those book changes.
+Order-flow-driven synthetic market simulation for Python.
+
+`orderwave` does not sample price first and explain it later. It simulates a sparse limit order book, stochastic limit arrivals, marketable flow, cancellations, and inside-spread quote improvement, then lets price emerge from those book changes.
+
+[English Docs](https://github.com/smturtle2/quoteflow/tree/main/docs) | [한국어 README](https://github.com/smturtle2/quoteflow/blob/main/README.ko.md) | [한국어 문서](https://github.com/smturtle2/quoteflow/tree/main/docs/ko)
+
+![orderwave overview](https://raw.githubusercontent.com/smturtle2/quoteflow/main/docs/assets/orderwave-overview.png)
+
+## Why orderwave
+
+- Minimal public API: `from orderwave import Market`
+- Price changes only as a consequence of book mechanics
+- Hidden fair value biases flow without directly overwriting price
+- Regime switching creates calmer, directional, and stressed periods
+- Same seed, same path
 
 ## Installation
 
@@ -21,7 +37,7 @@ pip install -e .[dev]
 ```python
 from orderwave import Market
 
-market = Market(seed=42)
+market = Market(seed=42, config={"preset": "balanced"})
 
 market.step()
 market.gen(steps=1_000)
@@ -33,14 +49,15 @@ print(snapshot["mid_price"], snapshot["best_bid"], snapshot["best_ask"])
 print(history.tail())
 ```
 
-## Why orderwave
+## What You Get
 
-- Minimal public API: `from orderwave import Market`
-- Price is an outcome of book dynamics, not a separately sampled process
-- Hidden fair value and regime shifts bias order flow without directly overwriting price
-- Deterministic paths under the same seed
+- `mid_price` as the primary quote-driven path
+- `last_price` as the most recent executed trade price
+- Visible bid/ask ladders with aggregate depth
+- Compact history as a `pandas.DataFrame`
+- Presets for balanced, trend, and volatile behavior
 
-## API
+## Public API
 
 ```python
 from orderwave import Market
@@ -50,112 +67,67 @@ market = Market(
     tick_size=0.01,
     levels=5,
     seed=42,
-    config={"preset": "balanced"},
+    config={"preset": "trend"},
 )
 ```
 
-Methods:
+| API | Purpose |
+| --- | --- |
+| `step()` | Run one micro-batch and return the latest snapshot |
+| `gen(steps=n)` | Run `n` micro-batches and return the latest snapshot |
+| `get()` | Return the current snapshot |
+| `get_history()` | Return a compact `pandas.DataFrame` history |
 
-- `step()` returns the latest snapshot after one micro-batch
-- `gen(steps=n)` advances `n` steps and returns the latest snapshot
-- `get()` returns the current snapshot
-- `get_history()` returns a compact `pandas.DataFrame`
+Advanced configuration is available through `orderwave.config.MarketConfig`.
 
-Supported presets:
+## Snapshot Semantics
 
-- `balanced`
-- `trend`
-- `volatile`
+`Market.get()` returns a dictionary with prices, spread, visible depth, recent aggressive volume, trade strength, depth imbalance, and regime.
 
-`config` accepts either a plain `dict` or `orderwave.config.MarketConfig`.
+Important distinction:
 
-## Snapshot
+- `mid_price` can move when quotes improve, cancel, or get depleted
+- `last_price` only changes when a trade actually executes
 
-`Market.get()` returns:
+## Visualization Example
 
-```python
-{
-    "step": int,
-    "last_price": float,
-    "mid_price": float,
-    "microprice": float,
-    "best_bid": float,
-    "best_ask": float,
-    "spread": float,
-    "bids": [{"price": float, "qty": float}, ...],
-    "asks": [{"price": float, "qty": float}, ...],
-    "last_trade_side": "buy" | "sell" | None,
-    "last_trade_qty": float,
-    "buy_aggr_volume": float,
-    "sell_aggr_volume": float,
-    "trade_strength": float,
-    "depth_imbalance": float,
-    "regime": str,
-}
+The repository includes a matplotlib example that plots price, trade strength, and a visible-book heatmap:
+
+```bash
+pip install matplotlib
+python examples/plot_market_heatmap.py --steps 2000 --preset trend
 ```
 
-`last_price` is the last executed trade price. If the book changes without a trade, `mid_price` can move while `last_price` stays fixed.
+Save directly to a file:
 
-## Model
-
-Each `step()` is a micro-batch:
-
-1. Compute state features from the current book
-2. Update regime: `calm`, `directional`, or `stressed`
-3. Update hidden fair value
-4. Sample limit orders, marketable flow, and cancellations
-5. Shuffle events and apply them to the book
-6. Record the snapshot and compact history row
-
-Price moves only through book mechanics:
-
-- market buy removes ask liquidity
-- market sell removes bid liquidity
-- cancellation depletes the best quote
-- a new limit order improves the quote inside the spread
-
-## Diagnostics Example
-
-```python
-from orderwave import Market
-
-market = Market(seed=7, config={"preset": "trend"})
-market.gen(steps=5_000)
-history = market.get_history()
-
-mid_ret = history["mid_price"].diff().fillna(0.0)
-abs_ret = mid_ret.abs()
-spread_mean = history["spread"].mean()
-imbalance_lead_corr = history["depth_imbalance"].corr(mid_ret.shift(-1).fillna(0.0))
-vol_cluster = abs_ret.autocorr(lag=1)
-
-print("spread mean:", spread_mean)
-print("imbalance -> next return corr:", imbalance_lead_corr)
-print("|return| lag-1 autocorr:", vol_cluster)
+```bash
+python examples/plot_market_heatmap.py --steps 2000 --preset trend --output artifacts/orderwave_heatmap.png
 ```
 
-## Maintainer Release
+## Presets At A Glance
 
-PyPI publishing is wired through [`workflow.yml`](https://github.com/smturtle2/quoteflow/blob/main/.github/workflows/workflow.yml).
+![orderwave presets](https://raw.githubusercontent.com/smturtle2/quoteflow/main/docs/assets/orderwave-presets.png)
 
-On 2026-03-06, [GitHub Actions release event docs](https://docs.github.com/en/actions/using-workflows/events-that-trigger-workflows#release) document that `release.types: [published]` triggers when a release is published, while drafts themselves do not trigger workflows. [PyPI trusted publishing docs](https://docs.pypi.org/trusted-publishers/using-a-publisher/) document the `id-token: write` flow used by the publish job.
+`balanced`, `trend`, and `volatile` reuse the same public API while shifting spread behavior, flow pressure, and hidden fair-price dynamics.
 
-Release flow:
+## Diagnostics
 
-1. Update `version` in `pyproject.toml`
-2. Commit and push to `main`
-3. In GitHub, open `Releases`
-4. Click `Draft a new release`
-5. Create a tag like `v0.1.0`
-6. Set the release title, then click `Publish release`
-7. GitHub Actions runs tests, builds the distributions, and publishes to PyPI
+![orderwave diagnostics](https://raw.githubusercontent.com/smturtle2/quoteflow/main/docs/assets/orderwave-diagnostics.png)
 
-Trusted Publisher settings for PyPI:
+The simulator is designed to expose useful microstructure diagnostics such as spread variation, imbalance lead, volatility clustering, and regime occupancy.
 
-- PyPI project name: `orderwave`
-- Repository owner: `smturtle2`
-- Repository name: `quoteflow`
-- Workflow filename: `.github/workflows/workflow.yml`
-- Environment name: `pypi`
+## Documentation
 
-If `orderwave` does not exist on PyPI yet, create the project through a pending publisher first. PyPI notes that a pending publisher does not reserve the name until the first successful publish.
+- [Documentation index](https://github.com/smturtle2/quoteflow/blob/main/docs/README.md)
+- [Getting started](https://github.com/smturtle2/quoteflow/blob/main/docs/getting-started.md)
+- [API reference](https://github.com/smturtle2/quoteflow/blob/main/docs/api.md)
+- [Examples](https://github.com/smturtle2/quoteflow/blob/main/docs/examples.md)
+- [Release guide](https://github.com/smturtle2/quoteflow/blob/main/docs/releasing.md)
+- [한국어 문서 인덱스](https://github.com/smturtle2/quoteflow/blob/main/docs/ko/README.md)
+
+## Design Guarantees
+
+- Price is never random-walked directly
+- Quote improvement, best-quote depletion, and market execution are the only price-moving mechanisms
+- Visible history starts at `step == 0` with the seeded initial book
+- Aggregate depth is modeled without exposing per-order FIFO complexity in v1

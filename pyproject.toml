@@ -8,6 +8,17 @@ version = "0.1.0"
 description = "An order-flow-driven synthetic market simulator."
 readme = "README.md"
 requires-python = ">=3.11"
+keywords = ["order-book", "market-simulation", "microstructure", "synthetic-data", "finance"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Financial and Insurance Industry",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Office/Business :: Financial",
+  "Topic :: Scientific/Engineering :: Information Analysis",
+]
 dependencies = [
   "numpy>=1.26",
   "pandas>=2.2",
@@ -15,6 +26,7 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/smturtle2/quoteflow"
+Documentation = "https://github.com/smturtle2/quoteflow/tree/main/docs"
 Repository = "https://github.com/smturtle2/quoteflow"
 Issues = "https://github.com/smturtle2/quoteflow/issues"
 

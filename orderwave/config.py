@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Configuration models for the public `orderwave` API."""
+
 from dataclasses import dataclass, replace
 from typing import Literal, Mapping
 
@@ -12,6 +14,36 @@ PRESET_NAMES: tuple[PresetName, ...] = ("balanced", "trend", "volatile")
 
 @dataclass(frozen=True)
 class MarketConfig:
+    """High-level controls for `orderwave.Market`.
+
+    This is the only advanced configuration object intended for external use.
+    It keeps the surface compact by exposing a preset plus a small set of
+    scaling knobs instead of the full internal microstructure coefficients.
+
+    Attributes
+    ----------
+    preset:
+        Behavior preset for the simulator. Supported values are
+        ``"balanced"``, ``"trend"``, and ``"volatile"``.
+    book_buffer_levels:
+        Internal depth kept behind the visible ``levels`` returned by
+        ``Market.get()``. Defaults to ``max(levels + 5, 10)``.
+    flow_window:
+        Rolling window length for signed aggressive flow features.
+    vol_window:
+        Rolling window length for short-horizon realized volatility features.
+    limit_rate_scale:
+        Multiplier applied to limit-order arrival intensity.
+    market_rate_scale:
+        Multiplier applied to marketable order intensity.
+    cancel_rate_scale:
+        Multiplier applied to cancellation intensity.
+    fair_price_vol_scale:
+        Multiplier applied to hidden fair-price volatility.
+    regime_transition_scale:
+        Multiplier applied to regime transition pressure.
+    """
+
     preset: PresetName = "balanced"
     book_buffer_levels: int | None = None
     flow_window: int = 20
@@ -228,6 +260,8 @@ _PRESETS: dict[PresetName, PresetParams] = {
 
 
 def coerce_config(config: MarketConfig | Mapping[str, object] | None, levels: int) -> MarketConfig:
+    """Normalize user-provided config into a validated ``MarketConfig``."""
+
     if config is None:
         market_config = MarketConfig()
     elif isinstance(config, MarketConfig):
@@ -265,4 +299,6 @@ def coerce_config(config: MarketConfig | Mapping[str, object] | None, levels: in
 
 
 def preset_params(preset: PresetName) -> PresetParams:
+    """Return the internal parameter bundle for a named preset."""
+
     return _PRESETS[preset]

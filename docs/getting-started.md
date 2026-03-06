@@ -1,0 +1,62 @@
+# Getting Started
+
+[Docs index](https://github.com/smturtle2/quoteflow/blob/main/docs/README.md) | [한국어](https://github.com/smturtle2/quoteflow/blob/main/docs/ko/getting-started.md)
+
+## Install
+
+```bash
+pip install orderwave
+```
+
+For development:
+
+```bash
+pip install -e .[dev]
+```
+
+## Minimal Example
+
+```python
+from orderwave import Market
+
+market = Market(seed=42)
+snapshot = market.step()
+history = market.get_history()
+```
+
+## Constructor
+
+```python
+Market(
+    init_price=100.0,
+    tick_size=0.01,
+    levels=5,
+    seed=None,
+    config=None,
+)
+```
+
+- `init_price`: initial reference price, snapped to the nearest tick
+- `tick_size`: order book price increment
+- `levels`: visible depth returned by `get()`
+- `seed`: deterministic random seed
+- `config`: `dict` or `orderwave.config.MarketConfig`
+
+## Presets
+
+- `balanced`: default setting with moderate flow and spread behavior
+- `trend`: stronger directional persistence and fair-value pressure
+- `volatile`: wider spread tendency and higher cancellation/market pressure
+
+## Snapshot Behavior
+
+The current state returned by `get()` is intentionally compact.
+
+- `mid_price` follows the best bid and ask
+- `last_price` only updates on real executions
+- `trade_strength` is a symmetric `[-1, 1]` signed flow indicator
+- `bids` and `asks` contain up to `levels` visible price levels
+
+## Reproducibility
+
+The simulator uses a NumPy random generator seeded at construction time. Two markets created with the same arguments and seed should generate the same path.
