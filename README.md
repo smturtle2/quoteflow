@@ -42,12 +42,14 @@ market.gen(steps=1_000)
 
 snapshot = market.get()
 history = market.get_history()
+events = market.get_event_history()
 overview = market.plot()
 book = market.plot_book()
 diagnostics = market.plot_diagnostics()
 
 print(snapshot["mid_price"], snapshot["best_bid"], snapshot["best_ask"])
 print(history.tail())
+print(events.tail())
 
 overview.savefig("orderwave-overview.png")
 ```
@@ -60,6 +62,7 @@ overview.savefig("orderwave-overview.png")
 | `gen(steps=n)` | Run `n` micro-batches and return the latest snapshot |
 | `get()` | Return the current snapshot |
 | `get_history()` | Return compact `pandas.DataFrame` history |
+| `get_event_history()` | Return the applied event log as a `pandas.DataFrame` |
 | `plot()` | Render price, spread, trade strength, and visible-book heatmap |
 | `plot_book()` | Render the current order book on a real price axis |
 | `plot_diagnostics()` | Render spread, imbalance, volatility, and regime diagnostics |
@@ -70,9 +73,9 @@ Advanced configuration is available through `orderwave.config.MarketConfig`.
 
 All plotting methods return `matplotlib.figure.Figure` and leave save/show control to the caller.
 
-- `plot()` renders the main overview: price, spread, trade strength, and signed visible-depth heatmap
+- `plot()` renders the main overview: price, spread, execution-only trade strength, and signed visible-depth heatmap
 - `plot_book()` renders the current order book on a real price axis
-- `plot_diagnostics()` renders spread, imbalance, volatility, and regime diagnostics
+- `plot_diagnostics()` renders spread, imbalance, non-zero absolute-return autocorrelation, and regime diagnostics
 
 ![orderwave current book](https://raw.githubusercontent.com/smturtle2/quoteflow/main/docs/assets/orderwave-built-in-current-book.png)
 
@@ -90,6 +93,8 @@ The overview heatmap keeps signed depth. Ask liquidity is red, bid liquidity is 
 
 `Market.get()` returns a compact dictionary with prices, spread, visible depth, aggressive volume, trade strength, depth imbalance, and regime.
 
+`trade_strength` is an execution-only signed imbalance. It is computed from an EWMA of realized aggressor buy and sell volume, so quote-only book changes do not move it.
+
 Important distinction:
 
 - `mid_price` can move when quotes improve, cancel, or get depleted
@@ -100,6 +105,7 @@ Core guarantees:
 - Price is never random-walked directly
 - Quote improvement, best-quote depletion, and market execution are the only price-moving mechanisms
 - Visible history starts at `step == 0` with the seeded initial book
+- Applied limit, market, and cancel events are available through `get_event_history()`
 - Aggregate depth is modeled without exposing per-order FIFO complexity in v1
 
 ## Docs

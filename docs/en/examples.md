@@ -10,8 +10,11 @@ from orderwave import Market
 market = Market(seed=7, config={"preset": "trend"})
 market.gen(steps=2_000)
 
+event_history = market.get_event_history()
 figure = market.plot(levels=8, title="orderwave overview")
 figure.savefig("orderwave-overview.png")
+
+print(event_history.tail())
 ```
 
 ![Overview image](../assets/orderwave-built-in-overview.png)
@@ -39,6 +42,17 @@ These built-in figures are meant to answer three different questions quickly:
 - what path did the simulator generate?
 - what does the current book look like?
 - does the path have useful microstructure signals?
+
+## Event Flow Inspection
+
+```python
+events = market.get_event_history()
+market_fills = events.loc[events["event_type"] == "market", ["step", "side", "fill_qty", "fills"]]
+
+print(market_fills.tail())
+```
+
+`get_event_history()` exposes the applied event stream, not just the sampled intents. That makes it easier to inspect sweep paths, cancellation pressure, and quote replenishment in the exact order they hit the book.
 
 ## CLI Example
 

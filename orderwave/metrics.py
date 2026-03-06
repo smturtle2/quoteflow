@@ -42,6 +42,8 @@ def compute_features(
     buy_flow: Sequence[float],
     sell_flow: Sequence[float],
     mid_returns: Sequence[float],
+    buy_exec_ema: float | None = None,
+    sell_exec_ema: float | None = None,
 ) -> MarketFeatures:
     if book.best_bid_tick is None or book.best_ask_tick is None:
         raise ValueError("book must contain both bid and ask liquidity")
@@ -64,6 +66,10 @@ def compute_features(
     buy_aggr_volume = float(sum(buy_flow))
     sell_aggr_volume = float(sum(sell_flow))
     signed_flow = _safe_balance(buy_aggr_volume, sell_aggr_volume)
+    trade_strength = _safe_balance(
+        buy_exec_ema if buy_exec_ema is not None else buy_aggr_volume,
+        sell_exec_ema if sell_exec_ema is not None else sell_aggr_volume,
+    )
 
     near_best_depth_ratio = float(
         clamp(
@@ -90,7 +96,7 @@ def compute_features(
         depth_imbalance=depth_imbalance,
         recent_flow_imbalance=signed_flow,
         recent_return=recent_return,
-        trade_strength=signed_flow,
+        trade_strength=trade_strength,
         near_best_depth_ratio=near_best_depth_ratio,
         rolling_volatility=realized_vol,
         buy_aggr_volume=buy_aggr_volume,

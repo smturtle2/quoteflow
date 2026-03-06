@@ -1,0 +1,120 @@
+from __future__ import annotations
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from orderwave import Market
+from orderwave.book import OrderBook
+
+
+def test_event_history_is_reproducible_for_same_seed() -> None:
+    market_a = Market(seed=21, config={"preset": "balanced"})
+    market_b = Market(seed=21, config={"preset": "balanced"})
+
+    market_a.gen(steps=40)
+    market_b.gen(steps=40)
+
+    pd.testing.assert_frame_equal(market_a.get_event_history(), market_b.get_event_history())
+
+
+def test_event_history_columns_and_invariants_hold() -> None:
+    market = Market(seed=42, config={"preset": "trend", "market_rate_scale": 1.2})
+    market.gen(steps=120)
+
+    events = market.get_event_history()
+
+    expected = {
+        "step",
+        "event_idx",
+        "event_type",
+        "side",
+        "level",
+        "price",
+        "requested_qty",
+        "applied_qty",
+        "fill_qty",
+        "fills",
+        "best_bid_after",
+        "best_ask_after",
+        "mid_price_after",
+        "last_trade_price_after",
+        "regime",
+    }
+
+    assert set(events.columns) == expected
+    assert not events.empty
+
+    records = list(events.itertuples(index=False))
+    for previous, current in zip(records, records[1:]):
+        assert current.step > previous.step or (
+            current.step == previous.step and current.event_idx > previous.event_idx
+        )
+
+    assert (events["best_bid_after"] < events["best_ask_after"]).all()
+
+    market_rows = events.loc[events["event_type"] == "market"]
+    assert not market_rows.empty
+    for row in market_rows.itertuples(index=False):
+        assert row.fill_qty == pytest.approx(sum(qty for _, qty in row.fills))
+
+    non_market_rows = events.loc[events["event_type"] != "market"]
+    assert non_market_rows["fills"].apply(lambda fills: fills == []).all()
+
+
+def test_trade_strength_matches_execution_only_ema() -> None:
+    market = Market(seed=7, config={"preset": "volatile"})
+    market.gen(steps=100)
+
+    history = market.get_history()
+    events = market.get_event_history()
+    market_events = events.loc[events["event_type"] == "market"]
+    buy_by_step = market_events.loc[market_events["side"] == "buy"].groupby("step")["fill_qty"].sum()
+    sell_by_step = market_events.loc[market_events["side"] == "sell"].groupby("step")["fill_qty"].sum()
+
+    alpha = market._trade_ema_alpha
+    buy_ema = 0.0
+    sell_ema = 0.0
+    expected = []
+    for step in history["step"]:
+        if step == 0:
+            expected.append(0.0)
+            continue
+        buy_ema = ((1.0 - alpha) * buy_ema) + (alpha * float(buy_by_step.get(step, 0.0)))
+        sell_ema = ((1.0 - alpha) * sell_ema) + (alpha * float(sell_by_step.get(step, 0.0)))
+        expected.append((buy_ema - sell_ema) / max(buy_ema + sell_ema, 1e-9))
+
+    np.testing.assert_allclose(history["trade_strength"].to_numpy(dtype=float), np.array(expected, dtype=float))
+
+
+def test_quote_only_changes_do_not_disturb_trade_strength() -> None:
+    market = Market(seed=3)
+    market._book = OrderBook(tick_size=market.tick_size)
+    market._book.set_level("bid", 10000, 6)
+    market._book.set_level("ask", 10002, 5)
+    market._buy_exec_ema = 8.0
+    market._sell_exec_ema = 2.0
+
+    before = market._compute_features().trade_strength
+    market._book.cancel_level("ask", 10002, 5)
+    market._book.set_level("ask", 10003, 5)
+    after = market._compute_features().trade_strength
+
+    assert before == pytest.approx(after)
+
+
+def test_balanced_preset_statistical_guardrails_hold() -> None:
+    market = Market(seed=42, config={"preset": "balanced"})
+    market.gen(steps=4000)
+
+    history = market.get_history()
+    mid_ret = history["mid_price"].diff().fillna(0.0)
+    next_mid_ret = mid_ret.shift(-1).fillna(0.0)
+    corr = float(history["depth_imbalance"].corr(next_mid_ret))
+    abs_ret = mid_ret.abs()
+    nonzero_abs_ret = abs_ret.loc[abs_ret > 0.0]
+    acf_1 = float(nonzero_abs_ret.autocorr(lag=1))
+
+    assert 0.0 < corr < 0.25
+    assert 0.0 < acf_1 < 0.25
+    assert history["spread"].nunique() >= 3

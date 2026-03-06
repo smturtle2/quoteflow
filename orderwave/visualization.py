@@ -254,6 +254,7 @@ def plot_market_diagnostics(
     mid_ret = history["mid_price"].diff().fillna(0.0)
     next_ret = mid_ret.shift(-1).fillna(0.0)
     abs_ret = mid_ret.abs()
+    nonzero_abs_ret = abs_ret.loc[abs_ret > 0.0].reset_index(drop=True)
     spread = history["spread"]
     imbalance = history["depth_imbalance"].clip(-1.0, 1.0)
 
@@ -263,7 +264,8 @@ def plot_market_diagnostics(
     x_positions = np.arange(len(bins) - 1)
     y_values = np.array([float(binned_signal.get(index, 0.0)) for index in x_positions], dtype=float)
     x_labels = [f"{bins[index]:.2f}\n{bins[index + 1]:.2f}" for index in x_positions]
-    acf = np.array([_safe_autocorr(abs_ret, lag) for lag in range(1, max_lag + 1)], dtype=float)
+    acf_source = nonzero_abs_ret if len(nonzero_abs_ret) >= 2 else abs_ret.reset_index(drop=True)
+    acf = np.array([_safe_autocorr(acf_source, lag) for lag in range(1, max_lag + 1)], dtype=float)
     regime_share = history["regime"].value_counts(normalize=True).reindex(REGIME_ORDER, fill_value=0.0)
 
     figure, axes = plt.subplots(2, 2, figsize=figsize or (14, 8.5), constrained_layout=True)
@@ -286,7 +288,7 @@ def plot_market_diagnostics(
 
     axes[1, 0].bar(np.arange(1, max_lag + 1), acf, color="#f97316", width=0.7)
     axes[1, 0].axhline(0.0, color="#0f172a", linewidth=0.85, alpha=0.45)
-    axes[1, 0].set_title("Absolute return autocorrelation")
+    axes[1, 0].set_title("Non-zero absolute return autocorrelation")
     axes[1, 0].set_xlabel("Lag")
     axes[1, 0].set_ylabel("Autocorr")
     axes[1, 0].grid(alpha=0.25, linestyle="--")

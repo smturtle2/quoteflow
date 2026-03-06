@@ -31,6 +31,7 @@ def test_gen_matches_repeated_step_for_same_seed() -> None:
 
     assert batch_snapshot == repeated_snapshot
     pd.testing.assert_frame_equal(batch_market.get_history(), step_market.get_history())
+    pd.testing.assert_frame_equal(batch_market.get_event_history(), step_market.get_event_history())
 
 
 def test_same_seed_reproduces_and_other_seed_differs() -> None:
@@ -38,12 +39,12 @@ def test_same_seed_reproduces_and_other_seed_differs() -> None:
     market_b = Market(seed=11)
     market_c = Market(seed=12)
 
-    market_a.gen(steps=20)
-    market_b.gen(steps=20)
-    market_c.gen(steps=20)
+    market_a.gen(steps=100)
+    market_b.gen(steps=100)
+    market_c.gen(steps=100)
 
     pd.testing.assert_frame_equal(market_a.get_history(), market_b.get_history())
-    assert not market_a.get_history()["mid_price"].equals(market_c.get_history()["mid_price"])
+    assert not market_a.get_event_history().equals(market_c.get_event_history())
 
 
 def test_history_contains_summary_columns_only() -> None:

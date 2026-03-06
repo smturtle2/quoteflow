@@ -26,6 +26,7 @@ def test_plot_methods_return_figures_and_do_not_mutate_state() -> None:
     market.gen(steps=30)
     snapshot_before = market.get()
     history_before = market.get_history()
+    event_history_before = market.get_event_history()
 
     overview = market.plot()
     book = market.plot_book()
@@ -36,6 +37,7 @@ def test_plot_methods_return_figures_and_do_not_mutate_state() -> None:
     assert isinstance(diagnostics, Figure)
     assert market.get() == snapshot_before
     pd.testing.assert_frame_equal(market.get_history(), history_before)
+    pd.testing.assert_frame_equal(market.get_event_history(), event_history_before)
 
 
 def test_plot_works_at_step_zero_and_book_plot_uses_real_price_axis() -> None:

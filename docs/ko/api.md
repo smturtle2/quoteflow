@@ -53,6 +53,8 @@ Market(
 - `depth_imbalance`
 - `regime`
 
+`trade_strength`는 execution-only signed imbalance입니다. 실제 aggressor buy/sell 체결량의 EWMA로 계산되며, quote-only 변화로는 바뀌지 않습니다.
+
 ### `get_history() -> pandas.DataFrame`
 
 초기 시드 상태부터 현재 step까지의 compact history를 반환합니다.
@@ -73,6 +75,30 @@ Market(
 - `regime`
 
 추가로 요약 depth, 변동성 컬럼이 포함될 수 있습니다.
+
+### `get_event_history() -> pandas.DataFrame`
+
+`step == 1`부터 현재 step까지의 적용 이벤트 로그를 반환합니다.
+
+컬럼:
+
+- `step`
+- `event_idx`
+- `event_type`
+- `side`
+- `level`
+- `price`
+- `requested_qty`
+- `applied_qty`
+- `fill_qty`
+- `fills`
+- `best_bid_after`
+- `best_ask_after`
+- `mid_price_after`
+- `last_trade_price_after`
+- `regime`
+
+이 로그는 샘플링된 의도 이벤트가 아니라 실제로 적용된 이벤트만 기록합니다. `market` 행의 `fills`에는 전체 sweep 경로가 `(price, qty)` 튜플 리스트로 들어갑니다.
 
 ### `plot(*, levels: int | None = None, title: str | None = None, figsize: tuple[float, float] | None = None) -> matplotlib.figure.Figure`
 
@@ -96,7 +122,7 @@ Market(
 
 - spread distribution
 - depth imbalance -> next mid return 관계
-- absolute return autocorrelation
+- non-zero absolute-return autocorrelation
 - regime occupancy
 
 이 메서드는 최소 두 개 이상의 history row가 필요합니다.

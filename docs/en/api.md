@@ -53,6 +53,8 @@ Snapshot fields:
 - `depth_imbalance`
 - `regime`
 
+`trade_strength` is an execution-only signed imbalance. It is computed from an EWMA of realized aggressor buy and sell volume, so quote-only book changes do not alter it.
+
 ### `get_history() -> pandas.DataFrame`
 
 Return compact history from the initial seeded book through the current step.
@@ -73,6 +75,30 @@ Minimum columns:
 - `regime`
 
 Additional convenience columns may include summary depth and volatility fields.
+
+### `get_event_history() -> pandas.DataFrame`
+
+Return the applied event log from `step == 1` through the current step.
+
+Columns:
+
+- `step`
+- `event_idx`
+- `event_type`
+- `side`
+- `level`
+- `price`
+- `requested_qty`
+- `applied_qty`
+- `fill_qty`
+- `fills`
+- `best_bid_after`
+- `best_ask_after`
+- `mid_price_after`
+- `last_trade_price_after`
+- `regime`
+
+The log records applied events only. `market` rows include a `fills` list of `(price, qty)` tuples covering the full sweep path.
 
 ### `plot(*, levels: int | None = None, title: str | None = None, figsize: tuple[float, float] | None = None) -> matplotlib.figure.Figure`
 
@@ -96,7 +122,7 @@ Render a 2x2 diagnostics figure with:
 
 - spread distribution
 - depth imbalance to next mid-return relationship
-- absolute-return autocorrelation
+- non-zero absolute-return autocorrelation
 - regime occupancy
 
 This method requires at least two recorded history rows.

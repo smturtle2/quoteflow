@@ -106,6 +106,9 @@ class Market:
         self._buy_flow: deque[float] = deque(maxlen=self.config.flow_window)
         self._sell_flow: deque[float] = deque(maxlen=self.config.flow_window)
         self._mid_returns: deque[float] = deque(maxlen=self.config.vol_window)
+        self._buy_exec_ema = 0.0
+        self._sell_exec_ema = 0.0
+        self._trade_ema_alpha = 2.0 / (self.config.flow_window + 1.0)
 
         self._seed_initial_book(init_tick)
         self._record_current_state()
@@ -182,6 +185,7 @@ class Market:
         step_buy_volume = 0.0
         step_sell_volume = 0.0
         applied_events: list[dict[str, object]] = []
+        event_idx = 0
 
         for event in sampled_events:
             event_type = event["type"]
@@ -193,15 +197,23 @@ class Market:
                 )
                 if applied_tick is None:
                     continue
-                applied_events.append(
-                    {
-                        "type": "limit",
-                        "side": event["side"],
-                        "level": event["level"],
-                        "qty": event["qty"],
-                        "tick": applied_tick,
-                    }
+                self._ensure_two_sided_book()
+                event_features = self._compute_features()
+                event_row = self._build_event_row(
+                    event_idx=event_idx,
+                    event_type="limit",
+                    side=event["side"],
+                    level=event["level"],
+                    price=tick_to_price(applied_tick, self.tick_size),
+                    requested_qty=event["qty"],
+                    applied_qty=event["qty"],
+                    fill_qty=0.0,
+                    fills=[],
+                    features=event_features,
                 )
+                self._history.record_event(event_row)
+                applied_events.append(event_row)
+                event_idx += 1
                 continue
 
             if event_type == "market":
@@ -215,33 +227,53 @@ class Market:
                 self._last_trade_price = tick_to_price(result.last_fill_tick, self.tick_size)
                 self._last_trade_side = event["side"]
                 self._last_trade_qty = float(result.filled_qty)
-                applied_events.append(
-                    {
-                        "type": "market",
-                        "side": event["side"],
-                        "requested_qty": event["qty"],
-                        "filled_qty": result.filled_qty,
-                        "last_fill_tick": result.last_fill_tick,
-                        "fills": result.fills,
-                    }
+                self._ensure_two_sided_book()
+                event_features = self._compute_features()
+                event_row = self._build_event_row(
+                    event_idx=event_idx,
+                    event_type="market",
+                    side=event["side"],
+                    level=None,
+                    price=tick_to_price(result.last_fill_tick, self.tick_size),
+                    requested_qty=event["qty"],
+                    applied_qty=result.filled_qty,
+                    fill_qty=result.filled_qty,
+                    fills=[
+                        (tick_to_price(fill_tick, self.tick_size), float(fill_qty))
+                        for fill_tick, fill_qty in result.fills
+                    ],
+                    features=event_features,
                 )
+                self._history.record_event(event_row)
+                applied_events.append(event_row)
+                event_idx += 1
                 continue
 
             canceled_qty = self._book.cancel_level(event["side"], event["tick"], event["qty"])
             if canceled_qty <= 0:
                 continue
-            applied_events.append(
-                {
-                    "type": "cancel",
-                    "side": event["side"],
-                    "tick": event["tick"],
-                    "qty": canceled_qty,
-                }
+            self._ensure_two_sided_book()
+            event_features = self._compute_features()
+            event_row = self._build_event_row(
+                event_idx=event_idx,
+                event_type="cancel",
+                side=event["side"],
+                level=event.get("level"),
+                price=tick_to_price(event["tick"], self.tick_size),
+                requested_qty=event["qty"],
+                applied_qty=canceled_qty,
+                fill_qty=0.0,
+                fills=[],
+                features=event_features,
             )
+            self._history.record_event(event_row)
+            applied_events.append(event_row)
+            event_idx += 1
 
         self._ensure_liquidity()
         self._buy_flow.append(step_buy_volume)
         self._sell_flow.append(step_sell_volume)
+        self._update_trade_strength_ema(step_buy_volume, step_sell_volume)
 
         current_features = self._compute_features()
         self._mid_returns.append(current_features.mid_price - previous_mid_price)
@@ -291,6 +323,19 @@ class Market:
         """
 
         return self._history.dataframe()
+
+    def get_event_history(self) -> pd.DataFrame:
+        """Return the applied event log recorded so far.
+
+        Returns
+        -------
+        pandas.DataFrame
+            One row per applied event with step-local ordering, event type,
+            requested/applied quantity, fill path for market events, and the
+            resulting after-state quotes.
+        """
+
+        return self._history.event_dataframe()
 
     def plot(
         self,
@@ -431,14 +476,17 @@ class Market:
 
     def _ensure_liquidity(self) -> None:
         fallback_qty = coerce_quantity(math.exp(self._params.limit_qty_log_mean))
+        self._ensure_two_sided_book(fallback_qty=fallback_qty)
+        self._ensure_visible_depth()
+
+    def _ensure_two_sided_book(self, *, fallback_qty: int | None = None) -> None:
+        fallback_qty = coerce_quantity(math.exp(self._params.limit_qty_log_mean)) if fallback_qty is None else fallback_qty
         if self._book.best_bid_tick is None:
             reference_tick = math.floor(self._hidden_fair_tick) - 1
             if self._book.best_ask_tick is not None:
                 reference_tick = min(reference_tick, self._book.best_ask_tick - 1)
             anchor_tick = max(0, int(reference_tick))
             self._book.add_limit("bid", anchor_tick, fallback_qty)
-            for offset in range(1, min(3, self.config.book_buffer_levels) + 1):
-                self._book.add_limit("bid", max(0, anchor_tick - offset), fallback_qty)
 
         if self._book.best_ask_tick is None:
             reference_tick = math.ceil(self._hidden_fair_tick) + 1
@@ -446,10 +494,11 @@ class Market:
                 reference_tick = max(reference_tick, self._book.best_bid_tick + 1)
             anchor_tick = int(reference_tick)
             self._book.add_limit("ask", anchor_tick, fallback_qty)
-            for offset in range(1, min(3, self.config.book_buffer_levels) + 1):
-                self._book.add_limit("ask", anchor_tick + offset, fallback_qty)
 
-        self._ensure_visible_depth()
+    def _update_trade_strength_ema(self, buy_volume: float, sell_volume: float) -> None:
+        alpha = self._trade_ema_alpha
+        self._buy_exec_ema = ((1.0 - alpha) * self._buy_exec_ema) + (alpha * float(buy_volume))
+        self._sell_exec_ema = ((1.0 - alpha) * self._sell_exec_ema) + (alpha * float(sell_volume))
 
     def _compute_features(self) -> MarketFeatures:
         return compute_features(
@@ -459,6 +508,8 @@ class Market:
             buy_flow=list(self._buy_flow),
             sell_flow=list(self._sell_flow),
             mid_returns=list(self._mid_returns),
+            buy_exec_ema=self._buy_exec_ema,
+            sell_exec_ema=self._sell_exec_ema,
         )
 
     def _record_current_state(self) -> None:
@@ -508,5 +559,37 @@ class Market:
             "sell_aggr_volume": features.sell_aggr_volume,
             "trade_strength": features.trade_strength,
             "depth_imbalance": features.depth_imbalance,
+            "regime": self._regime,
+        }
+
+    def _build_event_row(
+        self,
+        *,
+        event_idx: int,
+        event_type: str,
+        side: str,
+        level: int | None,
+        price: float,
+        requested_qty: int,
+        applied_qty: int | float,
+        fill_qty: int | float,
+        fills: list[tuple[float, float]],
+        features: MarketFeatures,
+    ) -> dict[str, object]:
+        return {
+            "step": self._step + 1,
+            "event_idx": event_idx,
+            "event_type": event_type,
+            "side": side,
+            "level": level,
+            "price": float(price),
+            "requested_qty": float(requested_qty),
+            "applied_qty": float(applied_qty),
+            "fill_qty": float(fill_qty),
+            "fills": list(fills),
+            "best_bid_after": tick_to_price(self._book.best_bid_tick, self.tick_size),
+            "best_ask_after": tick_to_price(self._book.best_ask_tick, self.tick_size),
+            "mid_price_after": features.mid_price,
+            "last_trade_price_after": float(self._last_trade_price),
             "regime": self._regime,
         }

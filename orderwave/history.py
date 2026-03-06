@@ -24,11 +24,30 @@ SUMMARY_COLUMNS = [
     "signed_flow",
 ]
 
+EVENT_COLUMNS = [
+    "step",
+    "event_idx",
+    "event_type",
+    "side",
+    "level",
+    "price",
+    "requested_qty",
+    "applied_qty",
+    "fill_qty",
+    "fills",
+    "best_bid_after",
+    "best_ask_after",
+    "mid_price_after",
+    "last_trade_price_after",
+    "regime",
+]
+
 
 class HistoryBuffer:
     def __init__(self) -> None:
         self._current_snapshot: dict[str, object] | None = None
         self._rows: list[dict[str, object]] = []
+        self._event_rows: list[dict[str, object]] = []
 
     def record(
         self,
@@ -60,6 +79,9 @@ class HistoryBuffer:
         }
         self._rows.append(row)
 
+    def record_event(self, event_row: dict[str, object]) -> None:
+        self._event_rows.append(copy.deepcopy(event_row))
+
     def current(self) -> dict[str, object]:
         if self._current_snapshot is None:
             raise ValueError("no snapshot recorded")
@@ -67,3 +89,6 @@ class HistoryBuffer:
 
     def dataframe(self) -> pd.DataFrame:
         return pd.DataFrame(self._rows, columns=SUMMARY_COLUMNS).copy(deep=True)
+
+    def event_dataframe(self) -> pd.DataFrame:
+        return pd.DataFrame(self._event_rows, columns=EVENT_COLUMNS).copy(deep=True)
