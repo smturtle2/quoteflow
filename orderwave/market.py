@@ -1,0 +1,325 @@
+from __future__ import annotations
+
+import math
+from collections import deque
+from typing import Mapping
+
+import numpy as np
+import pandas as pd
+
+from orderwave.book import OrderBook
+from orderwave.config import MarketConfig, RegimeName, coerce_config, preset_params
+from orderwave.history import HistoryBuffer
+from orderwave.metrics import MarketFeatures, compute_features
+from orderwave.model import (
+    advance_hidden_fair_tick,
+    sample_cancel_events,
+    sample_limit_events,
+    sample_market_events,
+    sample_next_regime,
+    score_limit_levels,
+)
+from orderwave.utils import coerce_quantity, price_to_tick, tick_to_price
+
+
+class Market:
+    def __init__(
+        self,
+        init_price: float = 100.0,
+        tick_size: float = 0.01,
+        levels: int = 5,
+        seed: int | None = None,
+        config: MarketConfig | Mapping[str, object] | None = None,
+    ) -> None:
+        if tick_size <= 0.0:
+            raise ValueError("tick_size must be positive")
+        if levels <= 0:
+            raise ValueError("levels must be positive")
+
+        self.tick_size = float(tick_size)
+        self.levels = int(levels)
+        self.seed = seed
+        self._rng = np.random.default_rng(seed)
+        self.config = coerce_config(config, self.levels)
+        self._params = preset_params(self.config.preset)
+
+        self._book = OrderBook(self.tick_size)
+        self._history = HistoryBuffer()
+        self._step = 0
+        self._debug_last_step_events: list[dict[str, object]] = []
+
+        init_tick = price_to_tick(init_price, self.tick_size)
+        self._init_price = tick_to_price(init_tick, self.tick_size)
+        self._regime: RegimeName = "calm"
+        self._hidden_fair_tick = init_tick + (self._params.initial_spread_ticks / 2.0)
+
+        self._last_trade_price = self._init_price
+        self._last_trade_side: str | None = None
+        self._last_trade_qty = 0.0
+
+        self._buy_flow: deque[float] = deque(maxlen=self.config.flow_window)
+        self._sell_flow: deque[float] = deque(maxlen=self.config.flow_window)
+        self._mid_returns: deque[float] = deque(maxlen=self.config.vol_window)
+
+        self._seed_initial_book(init_tick)
+        self._record_current_state()
+
+    def step(self) -> dict[str, object]:
+        previous_features = self._compute_features()
+        previous_mid_price = previous_features.mid_price
+
+        self._book.increment_staleness()
+        self._regime = sample_next_regime(
+            self._regime,
+            rng=self._rng,
+            config=self.config,
+            params=self._params,
+        )
+        self._hidden_fair_tick = advance_hidden_fair_tick(
+            self._hidden_fair_tick,
+            features=previous_features,
+            regime=self._regime,
+            rng=self._rng,
+            config=self.config,
+            params=self._params,
+        )
+
+        sampled_events = []
+        sampled_events.extend(
+            sample_limit_events(
+                book=self._book,
+                features=previous_features,
+                hidden_fair_tick=self._hidden_fair_tick,
+                regime=self._regime,
+                rng=self._rng,
+                config=self.config,
+                params=self._params,
+            )
+        )
+        sampled_events.extend(
+            sample_market_events(
+                features=previous_features,
+                hidden_fair_tick=self._hidden_fair_tick,
+                regime=self._regime,
+                rng=self._rng,
+                config=self.config,
+                params=self._params,
+            )
+        )
+        sampled_events.extend(
+            sample_cancel_events(
+                book=self._book,
+                features=previous_features,
+                hidden_fair_tick=self._hidden_fair_tick,
+                regime=self._regime,
+                rng=self._rng,
+                config=self.config,
+                params=self._params,
+            )
+        )
+        if sampled_events:
+            order = self._rng.permutation(len(sampled_events))
+            sampled_events = [sampled_events[index] for index in order]
+
+        step_buy_volume = 0.0
+        step_sell_volume = 0.0
+        applied_events: list[dict[str, object]] = []
+
+        for event in sampled_events:
+            event_type = event["type"]
+            if event_type == "limit":
+                applied_tick = self._book.apply_limit_relative(
+                    event["side"],
+                    event["level"],
+                    event["qty"],
+                )
+                if applied_tick is None:
+                    continue
+                applied_events.append(
+                    {
+                        "type": "limit",
+                        "side": event["side"],
+                        "level": event["level"],
+                        "qty": event["qty"],
+                        "tick": applied_tick,
+                    }
+                )
+                continue
+
+            if event_type == "market":
+                result = self._book.execute_market(event["side"], event["qty"])
+                if result.filled_qty <= 0:
+                    continue
+                if event["side"] == "buy":
+                    step_buy_volume += result.filled_qty
+                else:
+                    step_sell_volume += result.filled_qty
+                self._last_trade_price = tick_to_price(result.last_fill_tick, self.tick_size)
+                self._last_trade_side = event["side"]
+                self._last_trade_qty = float(result.filled_qty)
+                applied_events.append(
+                    {
+                        "type": "market",
+                        "side": event["side"],
+                        "requested_qty": event["qty"],
+                        "filled_qty": result.filled_qty,
+                        "last_fill_tick": result.last_fill_tick,
+                        "fills": result.fills,
+                    }
+                )
+                continue
+
+            canceled_qty = self._book.cancel_level(event["side"], event["tick"], event["qty"])
+            if canceled_qty <= 0:
+                continue
+            applied_events.append(
+                {
+                    "type": "cancel",
+                    "side": event["side"],
+                    "tick": event["tick"],
+                    "qty": canceled_qty,
+                }
+            )
+
+        self._ensure_liquidity()
+        self._buy_flow.append(step_buy_volume)
+        self._sell_flow.append(step_sell_volume)
+
+        current_features = self._compute_features()
+        self._mid_returns.append(current_features.mid_price - previous_mid_price)
+
+        self._step += 1
+        self._debug_last_step_events = applied_events
+        self._record_current_state()
+        return self.get()
+
+    def gen(self, steps: int) -> dict[str, object]:
+        if steps < 0:
+            raise ValueError("steps must be non-negative")
+        for _ in range(int(steps)):
+            self.step()
+        return self.get()
+
+    def get(self) -> dict[str, object]:
+        return self._history.current()
+
+    def get_history(self) -> pd.DataFrame:
+        return self._history.dataframe()
+
+    def _seed_initial_book(self, init_tick: int) -> None:
+        best_bid_tick = max(0, init_tick)
+        best_ask_tick = best_bid_tick + self._params.initial_spread_ticks
+
+        best_qty_bid = coerce_quantity(
+            self._rng.lognormal(self._params.limit_qty_log_mean + 0.35, self._params.limit_qty_log_sigma)
+        )
+        best_qty_ask = coerce_quantity(
+            self._rng.lognormal(self._params.limit_qty_log_mean + 0.35, self._params.limit_qty_log_sigma)
+        )
+        self._book.add_limit("bid", best_bid_tick, best_qty_bid)
+        self._book.add_limit("ask", best_ask_tick, best_qty_ask)
+
+        bootstrap_features = self._compute_features()
+        seed_order_count = max(self.config.book_buffer_levels, self.levels + 4)
+        for side in ("bid", "ask"):
+            levels, probabilities = score_limit_levels(
+                side,
+                book=self._book,
+                features=bootstrap_features,
+                hidden_fair_tick=self._hidden_fair_tick,
+                regime=self._regime,
+                config=self.config,
+                params=self._params,
+                allow_inside=False,
+            )
+            valid_levels = levels[levels >= 0]
+            valid_probabilities = probabilities[levels >= 0]
+            valid_probabilities = valid_probabilities / valid_probabilities.sum()
+            allocation = self._rng.multinomial(seed_order_count, valid_probabilities)
+            for level, order_count in zip(valid_levels, allocation):
+                if order_count <= 0:
+                    continue
+                qty = coerce_quantity(
+                    self._rng.lognormal(self._params.limit_qty_log_mean, self._params.limit_qty_log_sigma)
+                    * order_count
+                )
+                self._book.apply_limit_relative(side, int(level), qty)
+
+        self._ensure_visible_depth()
+
+    def _ensure_visible_depth(self) -> None:
+        minimum_levels = min(self.levels, 3)
+        target_qty = coerce_quantity(math.exp(self._params.limit_qty_log_mean))
+        for side in ("bid", "ask"):
+            current_levels = len(self._book.top_levels(side, minimum_levels))
+            for level in range(current_levels, minimum_levels):
+                self._book.apply_limit_relative(side, level, target_qty)
+
+    def _ensure_liquidity(self) -> None:
+        fallback_qty = coerce_quantity(math.exp(self._params.limit_qty_log_mean))
+        if self._book.best_bid_tick is None:
+            reference_tick = math.floor(self._hidden_fair_tick) - 1
+            if self._book.best_ask_tick is not None:
+                reference_tick = min(reference_tick, self._book.best_ask_tick - 1)
+            anchor_tick = max(0, int(reference_tick))
+            self._book.add_limit("bid", anchor_tick, fallback_qty)
+            for offset in range(1, min(3, self.config.book_buffer_levels) + 1):
+                self._book.add_limit("bid", max(0, anchor_tick - offset), fallback_qty)
+
+        if self._book.best_ask_tick is None:
+            reference_tick = math.ceil(self._hidden_fair_tick) + 1
+            if self._book.best_bid_tick is not None:
+                reference_tick = max(reference_tick, self._book.best_bid_tick + 1)
+            anchor_tick = int(reference_tick)
+            self._book.add_limit("ask", anchor_tick, fallback_qty)
+            for offset in range(1, min(3, self.config.book_buffer_levels) + 1):
+                self._book.add_limit("ask", anchor_tick + offset, fallback_qty)
+
+        self._ensure_visible_depth()
+
+    def _compute_features(self) -> MarketFeatures:
+        return compute_features(
+            self._book,
+            tick_size=self.tick_size,
+            depth_levels=self.levels,
+            buy_flow=list(self._buy_flow),
+            sell_flow=list(self._sell_flow),
+            mid_returns=list(self._mid_returns),
+        )
+
+    def _record_current_state(self) -> None:
+        features = self._compute_features()
+        snapshot = self._build_snapshot(features)
+        self._history.record(
+            snapshot,
+            top_n_bid_qty=features.top_bid_depth,
+            top_n_ask_qty=features.top_ask_depth,
+            realized_vol=features.realized_vol,
+            signed_flow=features.signed_flow,
+        )
+
+    def _build_snapshot(self, features: MarketFeatures) -> dict[str, object]:
+        return {
+            "step": self._step,
+            "last_price": self._last_trade_price,
+            "mid_price": features.mid_price,
+            "microprice": features.microprice,
+            "best_bid": tick_to_price(self._book.best_bid_tick, self.tick_size),
+            "best_ask": tick_to_price(self._book.best_ask_tick, self.tick_size),
+            "spread": features.spread_price,
+            "bids": [
+                {"price": tick_to_price(tick, self.tick_size), "qty": float(qty)}
+                for tick, qty in self._book.top_levels("bid", self.levels)
+            ],
+            "asks": [
+                {"price": tick_to_price(tick, self.tick_size), "qty": float(qty)}
+                for tick, qty in self._book.top_levels("ask", self.levels)
+            ],
+            "last_trade_side": self._last_trade_side,
+            "last_trade_qty": float(self._last_trade_qty),
+            "buy_aggr_volume": features.buy_aggr_volume,
+            "sell_aggr_volume": features.sell_aggr_volume,
+            "trade_strength": features.trade_strength,
+            "depth_imbalance": features.depth_imbalance,
+            "regime": self._regime,
+        }

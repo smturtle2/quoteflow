@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "orderwave"
+version = "0.1.0"
+description = "An order-flow-driven synthetic market simulator."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "numpy>=1.26",
+  "pandas>=2.2",
+]
+
+[project.urls]
+Homepage = "https://github.com/smturtle2/quoteflow"
+Repository = "https://github.com/smturtle2/quoteflow"
+Issues = "https://github.com/smturtle2/quoteflow/issues"
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["orderwave*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
