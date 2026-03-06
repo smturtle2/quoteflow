@@ -14,12 +14,24 @@ from orderwave.config import MarketConfig, RegimeName, coerce_config, preset_par
 from orderwave.history import HistoryBuffer
 from orderwave.metrics import MarketFeatures, compute_features
 from orderwave.model import (
-    advance_hidden_fair_tick,
-    sample_cancel_events,
-    sample_limit_events,
-    sample_market_events,
+    EXCITATION_KEYS,
+    EngineContext,
+    MetaOrderState,
+    ShockState,
+    advance_hidden_fair_state,
+    advance_hidden_volatility,
+    advance_meta_orders,
+    advance_shock_state,
+    decay_excitation,
+    derive_burst_state,
+    meta_order_progress,
+    resolve_session_phase,
     sample_next_regime,
+    sample_participant_events,
     score_limit_levels,
+    seasonality_multipliers,
+    update_excitation_state,
+    update_resiliency_state,
 )
 from orderwave.utils import coerce_quantity, price_to_tick, tick_to_price
 from orderwave.visualization import (
@@ -38,9 +50,9 @@ class Market:
     """Order-flow-driven synthetic market simulator.
 
     `Market` exposes a deliberately small public API while the internal engine
-    models a sparse aggregate limit order book, stochastic order arrivals,
-    marketable flow, cancellations, inside-spread quote improvement, a hidden
-    fair-price process, and regime switching.
+    models a sparse aggregate limit order book, conditional participant flow,
+    cancellations, latent meta-orders, exogenous shocks, self-excitation, and
+    multi-timescale hidden fair-value dynamics.
 
     Examples
     --------
@@ -49,6 +61,7 @@ class Market:
     >>> _ = market.gen(steps=1_000)
     >>> snapshot = market.get()
     >>> history = market.get_history()
+    >>> events = market.get_event_history()
     """
 
     def __init__(
@@ -59,22 +72,7 @@ class Market:
         seed: int | None = None,
         config: MarketConfig | Mapping[str, object] | None = None,
     ) -> None:
-        """Create a new simulator instance.
-
-        Parameters
-        ----------
-        init_price:
-            Initial reference price. It is snapped to the nearest tick.
-        tick_size:
-            Price increment used by the internal book.
-        levels:
-            Number of visible bid/ask levels returned by ``get()``.
-        seed:
-            Optional NumPy random seed for deterministic replay.
-        config:
-            Either an ``orderwave.config.MarketConfig`` instance or a plain
-            mapping with the same fields.
-        """
+        """Create a new simulator instance."""
 
         if tick_size <= 0.0:
             raise ValueError("tick_size must be positive")
@@ -97,7 +95,29 @@ class Market:
         init_tick = price_to_tick(init_price, self.tick_size)
         self._init_price = tick_to_price(init_tick, self.tick_size)
         self._regime: RegimeName = "calm"
-        self._hidden_fair_tick = init_tick + (self._params.initial_spread_ticks / 2.0)
+
+        self._day = 0
+        self._session_step = 0
+        self._session_phase = "open"
+        self._session_progress = 0.0
+
+        self._hidden_fair_base_tick = float(init_tick)
+        self._hidden_fair_slow = 0.0
+        self._hidden_fair_fast = 0.0
+        self._hidden_fair_jump = self._params.initial_spread_ticks / 2.0
+        self._hidden_fair_tick = self._hidden_fair_base_tick + self._hidden_fair_jump
+        self._hidden_vol = 0.3
+
+        self._excitation = {key: 0.0 for key in EXCITATION_KEYS}
+        self._burst_state = "calm"
+        self._shock_state: ShockState | None = None
+        self._meta_orders: dict[str, MetaOrderState | None] = {"buy": None, "sell": None}
+        self._next_meta_order_id = 1
+
+        self._spread_excess = 0.0
+        self._best_depth_deficit_bid = 0.0
+        self._best_depth_deficit_ask = 0.0
+        self._imbalance_displacement = 0.0
 
         self._last_trade_price = self._init_price
         self._last_trade_side: str | None = None
@@ -114,21 +134,12 @@ class Market:
         self._record_current_state()
 
     def step(self) -> dict[str, object]:
-        """Advance the simulator by one micro-batch.
-
-        A step samples limit orders, marketable orders, and cancellations from
-        state-conditioned distributions, shuffles those events, applies them to
-        the book, records the resulting snapshot, and returns that snapshot.
-
-        Returns
-        -------
-        dict[str, object]
-            The latest market snapshot.
-        """
+        """Advance the simulator by one micro-batch."""
 
         previous_features = self._compute_features()
         previous_mid_price = previous_features.mid_price
 
+        self._advance_session_clock()
         self._book.increment_staleness()
         self._regime = sample_next_regime(
             self._regime,
@@ -136,47 +147,64 @@ class Market:
             config=self.config,
             params=self._params,
         )
-        self._hidden_fair_tick = advance_hidden_fair_tick(
-            self._hidden_fair_tick,
+        self._excitation = decay_excitation(
+            self._excitation,
+            config=self.config,
+            params=self._params,
+        )
+        self._burst_state = derive_burst_state(self._excitation)
+
+        latent_context = self._current_context()
+        self._hidden_vol = advance_hidden_volatility(
+            self._hidden_vol,
             features=previous_features,
             regime=self._regime,
+            context=latent_context,
             rng=self._rng,
             config=self.config,
             params=self._params,
         )
+        self._hidden_fair_slow, self._hidden_fair_fast, self._hidden_fair_jump = advance_hidden_fair_state(
+            self._hidden_fair_slow,
+            self._hidden_fair_fast,
+            self._hidden_fair_jump,
+            features=previous_features,
+            regime=self._regime,
+            context=self._current_context(),
+            rng=self._rng,
+            params=self._params,
+        )
+        self._hidden_fair_tick = self._hidden_fair_base_tick + self._hidden_fair_slow + self._hidden_fair_fast + self._hidden_fair_jump
+        self._shock_state = advance_shock_state(
+            self._shock_state,
+            features=previous_features,
+            regime=self._regime,
+            context=self._current_context(),
+            rng=self._rng,
+            config=self.config,
+            params=self._params,
+        )
+        self._meta_orders, self._next_meta_order_id = advance_meta_orders(
+            self._meta_orders,
+            hidden_fair_tick=self._hidden_fair_tick,
+            features=previous_features,
+            regime=self._regime,
+            context=self._current_context(),
+            rng=self._rng,
+            config=self.config,
+            params=self._params,
+            next_meta_order_id=self._next_meta_order_id,
+        )
 
-        sampled_events = []
-        sampled_events.extend(
-            sample_limit_events(
-                book=self._book,
-                features=previous_features,
-                hidden_fair_tick=self._hidden_fair_tick,
-                regime=self._regime,
-                rng=self._rng,
-                config=self.config,
-                params=self._params,
-            )
-        )
-        sampled_events.extend(
-            sample_market_events(
-                features=previous_features,
-                hidden_fair_tick=self._hidden_fair_tick,
-                regime=self._regime,
-                rng=self._rng,
-                config=self.config,
-                params=self._params,
-            )
-        )
-        sampled_events.extend(
-            sample_cancel_events(
-                book=self._book,
-                features=previous_features,
-                hidden_fair_tick=self._hidden_fair_tick,
-                regime=self._regime,
-                rng=self._rng,
-                config=self.config,
-                params=self._params,
-            )
+        sampled_events = sample_participant_events(
+            book=self._book,
+            features=previous_features,
+            hidden_fair_tick=self._hidden_fair_tick,
+            regime=self._regime,
+            context=self._current_context(),
+            rng=self._rng,
+            config=self.config,
+            params=self._params,
         )
         if sampled_events:
             order = self._rng.permutation(len(sampled_events))
@@ -188,86 +216,14 @@ class Market:
         event_idx = 0
 
         for event in sampled_events:
-            event_type = event["type"]
-            if event_type == "limit":
-                applied_tick = self._book.apply_limit_relative(
-                    event["side"],
-                    event["level"],
-                    event["qty"],
-                )
-                if applied_tick is None:
-                    continue
-                self._ensure_two_sided_book()
-                event_features = self._compute_features()
-                event_row = self._build_event_row(
-                    event_idx=event_idx,
-                    event_type="limit",
-                    side=event["side"],
-                    level=event["level"],
-                    price=tick_to_price(applied_tick, self.tick_size),
-                    requested_qty=event["qty"],
-                    applied_qty=event["qty"],
-                    fill_qty=0.0,
-                    fills=[],
-                    features=event_features,
-                )
-                self._history.record_event(event_row)
-                applied_events.append(event_row)
-                event_idx += 1
+            applied = self._apply_event(event, event_idx=event_idx)
+            if applied is None:
                 continue
-
-            if event_type == "market":
-                result = self._book.execute_market(event["side"], event["qty"])
-                if result.filled_qty <= 0:
-                    continue
-                if event["side"] == "buy":
-                    step_buy_volume += result.filled_qty
-                else:
-                    step_sell_volume += result.filled_qty
-                self._last_trade_price = tick_to_price(result.last_fill_tick, self.tick_size)
-                self._last_trade_side = event["side"]
-                self._last_trade_qty = float(result.filled_qty)
-                self._ensure_two_sided_book()
-                event_features = self._compute_features()
-                event_row = self._build_event_row(
-                    event_idx=event_idx,
-                    event_type="market",
-                    side=event["side"],
-                    level=None,
-                    price=tick_to_price(result.last_fill_tick, self.tick_size),
-                    requested_qty=event["qty"],
-                    applied_qty=result.filled_qty,
-                    fill_qty=result.filled_qty,
-                    fills=[
-                        (tick_to_price(fill_tick, self.tick_size), float(fill_qty))
-                        for fill_tick, fill_qty in result.fills
-                    ],
-                    features=event_features,
-                )
-                self._history.record_event(event_row)
-                applied_events.append(event_row)
-                event_idx += 1
-                continue
-
-            canceled_qty = self._book.cancel_level(event["side"], event["tick"], event["qty"])
-            if canceled_qty <= 0:
-                continue
-            self._ensure_two_sided_book()
-            event_features = self._compute_features()
-            event_row = self._build_event_row(
-                event_idx=event_idx,
-                event_type="cancel",
-                side=event["side"],
-                level=event.get("level"),
-                price=tick_to_price(event["tick"], self.tick_size),
-                requested_qty=event["qty"],
-                applied_qty=canceled_qty,
-                fill_qty=0.0,
-                fills=[],
-                features=event_features,
-            )
-            self._history.record_event(event_row)
-            applied_events.append(event_row)
+            applied_events.append(applied["event_row"])
+            if applied["side"] == "buy":
+                step_buy_volume += applied["fill_qty"]
+            elif applied["side"] == "sell":
+                step_sell_volume += applied["fill_qty"]
             event_idx += 1
 
         self._ensure_liquidity()
@@ -284,18 +240,7 @@ class Market:
         return self.get()
 
     def gen(self, steps: int) -> dict[str, object]:
-        """Advance the simulator by ``steps`` micro-batches.
-
-        Parameters
-        ----------
-        steps:
-            Number of steps to execute. Must be non-negative.
-
-        Returns
-        -------
-        dict[str, object]
-            The latest market snapshot after the final step.
-        """
+        """Advance the simulator by ``steps`` micro-batches."""
 
         if steps < 0:
             raise ValueError("steps must be non-negative")
@@ -304,38 +249,24 @@ class Market:
         return self.get()
 
     def get(self) -> dict[str, object]:
-        """Return the current market snapshot.
-
-        The snapshot includes prices, spread, visible depth, recent aggressive
-        flow, trade strength, depth imbalance, and the active regime.
-        """
+        """Return the current market snapshot."""
 
         return self._history.current()
 
     def get_history(self) -> pd.DataFrame:
-        """Return the compact history recorded so far.
-
-        Returns
-        -------
-        pandas.DataFrame
-            One row per simulator step, including the initial seeded state at
-            ``step == 0``.
-        """
+        """Return the compact history recorded so far."""
 
         return self._history.dataframe()
 
     def get_event_history(self) -> pd.DataFrame:
-        """Return the applied event log recorded so far.
-
-        Returns
-        -------
-        pandas.DataFrame
-            One row per applied event with step-local ordering, event type,
-            requested/applied quantity, fill path for market events, and the
-            resulting after-state quotes.
-        """
+        """Return the applied event log recorded so far."""
 
         return self._history.event_dataframe()
+
+    def get_debug_history(self) -> pd.DataFrame:
+        """Return the event-aligned latent debug history."""
+
+        return self._history.debug_dataframe()
 
     def plot(
         self,
@@ -344,18 +275,7 @@ class Market:
         title: str | None = None,
         figsize: tuple[float, float] | None = None,
     ) -> Figure:
-        """Render the built-in market overview figure.
-
-        Parameters
-        ----------
-        levels:
-            Visible bid/ask depth rows to include in the heatmap. Values above
-            the internal book buffer are clamped automatically.
-        title:
-            Optional figure title.
-        figsize:
-            Optional ``(width, height)`` in inches.
-        """
+        """Render the built-in market overview figure."""
 
         return plot_market_overview(
             self.get_history(),
@@ -372,18 +292,7 @@ class Market:
         title: str | None = None,
         figsize: tuple[float, float] | None = None,
     ) -> Figure:
-        """Render the current order-book snapshot on a real price axis.
-
-        Parameters
-        ----------
-        levels:
-            Number of visible bid/ask levels to draw. Values above the internal
-            book buffer are clamped automatically.
-        title:
-            Optional figure title.
-        figsize:
-            Optional ``(width, height)`` in inches.
-        """
+        """Render the current order-book snapshot on a real price axis."""
 
         features = self._compute_features()
         return plot_order_book(
@@ -403,22 +312,12 @@ class Market:
         title: str | None = None,
         figsize: tuple[float, float] | None = None,
     ) -> Figure:
-        """Render spread, imbalance, volatility, and regime diagnostics.
-
-        Parameters
-        ----------
-        imbalance_bins:
-            Number of bins used for the imbalance-to-next-return plot.
-        max_lag:
-            Maximum lag used for absolute-return autocorrelation.
-        title:
-            Optional figure title.
-        figsize:
-            Optional ``(width, height)`` in inches.
-        """
+        """Render realism-oriented diagnostics for the simulated path."""
 
         return plot_market_diagnostics(
             self.get_history(),
+            self.get_event_history(),
+            self.get_debug_history(),
             imbalance_bins=imbalance_bins,
             max_lag=max_lag,
             title=title,
@@ -443,10 +342,12 @@ class Market:
         for side in ("bid", "ask"):
             levels, probabilities = score_limit_levels(
                 side,
+                "passive_lp",
                 book=self._book,
                 features=bootstrap_features,
                 hidden_fair_tick=self._hidden_fair_tick,
                 regime=self._regime,
+                context=None,
                 config=self.config,
                 params=self._params,
                 allow_inside=False,
@@ -465,6 +366,130 @@ class Market:
                 self._book.apply_limit_relative(side, int(level), qty)
 
         self._ensure_visible_depth()
+
+    def _apply_event(self, event: dict[str, object], *, event_idx: int) -> dict[str, object] | None:
+        event_type = event["type"]
+        if event_type == "limit":
+            applied_tick = self._book.apply_limit_relative(
+                event["side"],
+                event["level"],
+                event["qty"],
+            )
+            if applied_tick is None:
+                return None
+            self._ensure_two_sided_book()
+            event_features = self._compute_features()
+            self._update_after_event_state(
+                event_type="limit",
+                side=event["side"],
+                level=event["level"],
+                applied_qty=event["qty"],
+                fill_qty=0.0,
+                features=event_features,
+            )
+            event_row = self._build_event_row(
+                event_idx=event_idx,
+                event_type="limit",
+                side=event["side"],
+                level=event["level"],
+                price=tick_to_price(applied_tick, self.tick_size),
+                requested_qty=event["qty"],
+                applied_qty=event["qty"],
+                fill_qty=0.0,
+                fills=[],
+                features=event_features,
+            )
+            debug_row = self._build_debug_row(
+                event_idx=event_idx,
+                event=event,
+            )
+            self._history.record_event(event_row)
+            self._history.record_debug(debug_row)
+            return {"event_row": event_row, "side": event["side"], "fill_qty": 0.0}
+
+        if event_type == "market":
+            result = self._book.execute_market(event["side"], event["qty"])
+            if result.filled_qty <= 0:
+                return None
+            self._last_trade_price = tick_to_price(result.last_fill_tick, self.tick_size)
+            self._last_trade_side = event["side"]
+            self._last_trade_qty = float(result.filled_qty)
+            self._consume_meta_order(event.get("meta_order_side"), result.filled_qty)
+            self._ensure_two_sided_book()
+            event_features = self._compute_features()
+            self._update_after_event_state(
+                event_type="market",
+                side=event["side"],
+                level=None,
+                applied_qty=result.filled_qty,
+                fill_qty=result.filled_qty,
+                features=event_features,
+            )
+            event_row = self._build_event_row(
+                event_idx=event_idx,
+                event_type="market",
+                side=event["side"],
+                level=None,
+                price=tick_to_price(result.last_fill_tick, self.tick_size),
+                requested_qty=event["qty"],
+                applied_qty=result.filled_qty,
+                fill_qty=result.filled_qty,
+                fills=[
+                    (tick_to_price(fill_tick, self.tick_size), float(fill_qty))
+                    for fill_tick, fill_qty in result.fills
+                ],
+                features=event_features,
+            )
+            debug_row = self._build_debug_row(
+                event_idx=event_idx,
+                event=event,
+            )
+            self._history.record_event(event_row)
+            self._history.record_debug(debug_row)
+            return {"event_row": event_row, "side": event["side"], "fill_qty": float(result.filled_qty)}
+
+        canceled_qty = self._book.cancel_level(event["side"], event["tick"], event["qty"])
+        if canceled_qty <= 0:
+            return None
+        self._ensure_two_sided_book()
+        event_features = self._compute_features()
+        self._update_after_event_state(
+            event_type="cancel",
+            side=event["side"],
+            level=event.get("level"),
+            applied_qty=canceled_qty,
+            fill_qty=0.0,
+            features=event_features,
+        )
+        event_row = self._build_event_row(
+            event_idx=event_idx,
+            event_type="cancel",
+            side=event["side"],
+            level=event.get("level"),
+            price=tick_to_price(event["tick"], self.tick_size),
+            requested_qty=event["qty"],
+            applied_qty=canceled_qty,
+            fill_qty=0.0,
+            fills=[],
+            features=event_features,
+        )
+        debug_row = self._build_debug_row(
+            event_idx=event_idx,
+            event=event,
+        )
+        self._history.record_event(event_row)
+        self._history.record_debug(debug_row)
+        return {"event_row": event_row, "side": event["side"], "fill_qty": 0.0}
+
+    def _advance_session_clock(self) -> None:
+        self._session_step += 1
+        if self._session_step > self.config.steps_per_day:
+            self._session_step = 1
+            self._day += 1
+        self._session_phase, self._session_progress = resolve_session_phase(
+            self._session_step,
+            self.config.steps_per_day,
+        )
 
     def _ensure_visible_depth(self) -> None:
         minimum_levels = min(self.levels, 3)
@@ -495,6 +520,26 @@ class Market:
             anchor_tick = int(reference_tick)
             self._book.add_limit("ask", anchor_tick, fallback_qty)
 
+    def _consume_meta_order(self, meta_order_side: str | None, filled_qty: float) -> None:
+        if meta_order_side not in {"buy", "sell"}:
+            return
+        current = self._meta_orders.get(meta_order_side)
+        if current is None:
+            return
+        remaining = max(0.0, current.remaining_qty - float(filled_qty))
+        if remaining <= 1.0:
+            self._meta_orders[meta_order_side] = None
+            return
+        self._meta_orders[meta_order_side] = MetaOrderState(
+            id=current.id,
+            side=current.side,
+            initial_qty=current.initial_qty,
+            remaining_qty=remaining,
+            urgency=current.urgency,
+            decay_half_life=current.decay_half_life,
+            age=current.age,
+        )
+
     def _update_trade_strength_ema(self, buy_volume: float, sell_volume: float) -> None:
         alpha = self._trade_ema_alpha
         self._buy_exec_ema = ((1.0 - alpha) * self._buy_exec_ema) + (alpha * float(buy_volume))
@@ -510,6 +555,65 @@ class Market:
             mid_returns=list(self._mid_returns),
             buy_exec_ema=self._buy_exec_ema,
             sell_exec_ema=self._sell_exec_ema,
+        )
+
+    def _current_context(self) -> EngineContext:
+        return EngineContext(
+            session_phase=self._session_phase,
+            session_progress=self._session_progress,
+            seasonality=seasonality_multipliers(
+                self._session_phase,
+                session_progress=self._session_progress,
+                scale=self.config.seasonality_scale,
+            ),
+            hidden_vol=self._hidden_vol,
+            excitation=dict(self._excitation),
+            burst_state=self._burst_state,
+            shock=self._shock_state,
+            meta_orders=dict(self._meta_orders),
+            spread_excess=self._spread_excess,
+            best_depth_deficit_bid=self._best_depth_deficit_bid,
+            best_depth_deficit_ask=self._best_depth_deficit_ask,
+            imbalance_displacement=self._imbalance_displacement,
+        )
+
+    def _update_after_event_state(
+        self,
+        *,
+        event_type: str,
+        side: str,
+        level: int | None,
+        applied_qty: float,
+        fill_qty: float,
+        features: MarketFeatures,
+    ) -> None:
+        self._excitation = update_excitation_state(
+            self._excitation,
+            event_type=event_type,
+            side=side,
+            level=level,
+            applied_qty=applied_qty,
+            fill_qty=fill_qty,
+            config=self.config,
+        )
+        self._burst_state = derive_burst_state(self._excitation)
+        seasonality_depth = self._current_context().seasonality["depth"]
+        (
+            self._spread_excess,
+            self._best_depth_deficit_bid,
+            self._best_depth_deficit_ask,
+            self._imbalance_displacement,
+        ) = update_resiliency_state(
+            book=self._book,
+            features=features,
+            seasonality_depth=seasonality_depth,
+            current_spread_excess=self._spread_excess,
+            current_bid_deficit=self._best_depth_deficit_bid,
+            current_ask_deficit=self._best_depth_deficit_ask,
+            current_imbalance_displacement=self._imbalance_displacement,
+            shock=self._shock_state,
+            meta_orders=self._meta_orders,
+            params=self._params,
         )
 
     def _record_current_state(self) -> None:
@@ -539,6 +643,9 @@ class Market:
     def _build_snapshot(self, features: MarketFeatures) -> dict[str, object]:
         return {
             "step": self._step,
+            "day": self._day,
+            "session_step": self._session_step,
+            "session_phase": self._session_phase,
             "last_price": self._last_trade_price,
             "mid_price": features.mid_price,
             "microprice": features.microprice,
@@ -579,6 +686,9 @@ class Market:
         return {
             "step": self._step + 1,
             "event_idx": event_idx,
+            "day": self._day,
+            "session_step": self._session_step,
+            "session_phase": self._session_phase,
             "event_type": event_type,
             "side": side,
             "level": level,
@@ -592,4 +702,27 @@ class Market:
             "mid_price_after": features.mid_price,
             "last_trade_price_after": float(self._last_trade_price),
             "regime": self._regime,
+        }
+
+    def _build_debug_row(
+        self,
+        *,
+        event_idx: int,
+        event: dict[str, object],
+    ) -> dict[str, object]:
+        meta_side = event.get("meta_order_side")
+        meta_order = self._meta_orders.get(meta_side) if meta_side in {"buy", "sell"} else None
+        return {
+            "step": self._step + 1,
+            "event_idx": event_idx,
+            "day": self._day,
+            "session_step": self._session_step,
+            "session_phase": self._session_phase,
+            "source": event.get("source", "organic"),
+            "participant_type": event.get("participant_type"),
+            "meta_order_id": event.get("meta_order_id"),
+            "meta_order_side": meta_side,
+            "meta_order_progress": meta_order_progress(meta_order),
+            "burst_state": self._burst_state,
+            "shock_state": self._shock_state.name if self._shock_state is not None else "none",
         }

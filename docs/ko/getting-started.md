@@ -24,6 +24,8 @@ market.gen(steps=1_000)
 
 snapshot = market.get()
 history = market.get_history()
+events = market.get_event_history()
+debug = market.get_debug_history()
 figure = market.plot()
 ```
 
@@ -55,7 +57,7 @@ diagnostics = market.plot_diagnostics()
 
 - `plot()`은 가격, 스프레드, 체결 강도, signed visible-book heatmap을 렌더링합니다
 - `plot_book()`은 현재 order book을 실제 가격축으로 렌더링합니다
-- `plot_diagnostics()`는 spread, imbalance, volatility, regime 진단을 렌더링합니다
+- `plot_diagnostics()`는 session profile, market-flow excitation, imbalance lead, spread-volatility coupling, resiliency, regime/shock occupancy를 렌더링합니다
 
 모든 plotting 메서드는 `matplotlib.figure.Figure`를 반환합니다. 저장이나 표시 시점은 사용자가 직접 제어합니다.
 
@@ -71,8 +73,14 @@ diagnostics = market.plot_diagnostics()
 
 - `mid_price`는 최우선 bid/ask를 반영합니다
 - `last_price`는 실제 체결 때만 갱신됩니다
+- `day`, `session_step`, `session_phase`는 synthetic session clock을 보여줍니다
 - `trade_strength`는 대칭형 `[-1, 1]` signed flow 지표입니다
 - `bids`, `asks`는 최대 `levels`개의 visible price level을 담습니다
+
+## 고급 검증
+
+- `get_event_history()`는 실제 적용된 event stream만 반환합니다
+- `get_debug_history()`는 같은 `step`, `event_idx` 키로 participant type, meta-order progress, burst state, shock state를 반환합니다
 
 ## 재현성
 

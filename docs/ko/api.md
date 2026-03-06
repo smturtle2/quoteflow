@@ -37,6 +37,9 @@ Market(
 주요 필드:
 
 - `step`
+- `day`
+- `session_step`
+- `session_phase`
 - `last_price`
 - `mid_price`
 - `microprice`
@@ -62,6 +65,9 @@ Market(
 최소 컬럼:
 
 - `step`
+- `day`
+- `session_step`
+- `session_phase`
 - `last_price`
 - `mid_price`
 - `microprice`
@@ -84,6 +90,9 @@ Market(
 
 - `step`
 - `event_idx`
+- `day`
+- `session_step`
+- `session_phase`
 - `event_type`
 - `side`
 - `level`
@@ -99,6 +108,27 @@ Market(
 - `regime`
 
 이 로그는 샘플링된 의도 이벤트가 아니라 실제로 적용된 이벤트만 기록합니다. `market` 행의 `fills`에는 전체 sweep 경로가 `(price, qty)` 튜플 리스트로 들어갑니다.
+
+### `get_debug_history() -> pandas.DataFrame`
+
+event-aligned latent debug stream을 반환합니다.
+
+컬럼:
+
+- `step`
+- `event_idx`
+- `day`
+- `session_step`
+- `session_phase`
+- `source`
+- `participant_type`
+- `meta_order_id`
+- `meta_order_side`
+- `meta_order_progress`
+- `burst_state`
+- `shock_state`
+
+`get_debug_history()`는 `get_event_history()`와 같은 `step`, `event_idx` 키를 공유합니다. 기본 사용 흐름보다는 고급 검증과 diagnostics용 API입니다.
 
 ### `plot(*, levels: int | None = None, title: str | None = None, figsize: tuple[float, float] | None = None) -> matplotlib.figure.Figure`
 
@@ -118,12 +148,14 @@ Market(
 
 ### `plot_diagnostics(*, imbalance_bins: int = 8, max_lag: int = 12, title: str | None = None, figsize: tuple[float, float] | None = None) -> matplotlib.figure.Figure`
 
-다음 2x2 diagnostics figure를 렌더링합니다.
+다음 3x2 diagnostics figure를 렌더링합니다.
 
-- spread distribution
+- session phase spread / filled-volume profile
 - depth imbalance -> next mid return 관계
-- non-zero absolute-return autocorrelation
-- regime occupancy
+- market-flow excitation profile
+- spread-volatility coupling
+- depletion resiliency
+- regime / shock occupancy
 
 이 메서드는 최소 두 개 이상의 history row가 필요합니다.
 
@@ -144,5 +176,10 @@ from orderwave.config import MarketConfig
 - `cancel_rate_scale`
 - `fair_price_vol_scale`
 - `regime_transition_scale`
+- `steps_per_day`
+- `seasonality_scale`
+- `excitation_scale`
+- `meta_order_scale`
+- `shock_scale`
 
 `Market`에 전달하는 `config`는 `MarketConfig` 인스턴스나 같은 키를 가진 `dict` 둘 다 가능합니다.

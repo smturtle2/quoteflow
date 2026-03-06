@@ -11,10 +11,12 @@ market = Market(seed=7, config={"preset": "trend"})
 market.gen(steps=2_000)
 
 event_history = market.get_event_history()
+debug_history = market.get_debug_history()
 figure = market.plot(levels=8, title="orderwave overview")
 figure.savefig("orderwave-overview.png")
 
 print(event_history.tail())
+print(debug_history.tail())
 ```
 
 ![Overview image](../assets/orderwave-built-in-overview.png)
@@ -53,6 +55,17 @@ print(market_fills.tail())
 ```
 
 `get_event_history()`는 샘플링된 의도 이벤트가 아니라 실제 적용 순서 그대로의 event stream을 노출합니다. 덕분에 sweep 경로, 취소 압력, quote replenishment를 그대로 검증할 수 있습니다.
+
+## Latent Debug 확인
+
+```python
+debug = market.get_debug_history()
+joined = market.get_event_history().merge(debug, on=["step", "event_idx"], how="inner")
+
+print(joined[["step", "event_idx", "event_type", "participant_type", "meta_order_id", "shock_state"]].tail())
+```
+
+`get_debug_history()`는 고급 검증용 뷰입니다. 얇은 public event log에는 숨은 원인 라벨을 넣지 않되, participant mix, burst state, meta-order progress, shock state는 별도 테이블에서 감사 가능하게 유지합니다.
 
 ## CLI 예제
 

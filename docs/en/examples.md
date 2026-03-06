@@ -11,10 +11,12 @@ market = Market(seed=7, config={"preset": "trend"})
 market.gen(steps=2_000)
 
 event_history = market.get_event_history()
+debug_history = market.get_debug_history()
 figure = market.plot(levels=8, title="orderwave overview")
 figure.savefig("orderwave-overview.png")
 
 print(event_history.tail())
+print(debug_history.tail())
 ```
 
 ![Overview image](../assets/orderwave-built-in-overview.png)
@@ -53,6 +55,17 @@ print(market_fills.tail())
 ```
 
 `get_event_history()` exposes the applied event stream, not just the sampled intents. That makes it easier to inspect sweep paths, cancellation pressure, and quote replenishment in the exact order they hit the book.
+
+## Latent Debug Inspection
+
+```python
+debug = market.get_debug_history()
+joined = market.get_event_history().merge(debug, on=["step", "event_idx"], how="inner")
+
+print(joined[["step", "event_idx", "event_type", "participant_type", "meta_order_id", "shock_state"]].tail())
+```
+
+`get_debug_history()` is the advanced inspection view. It keeps latent driver labels out of the thin public event log while still making participant mix, burst state, meta-order progress, and shock state auditable.
 
 ## CLI Example
 

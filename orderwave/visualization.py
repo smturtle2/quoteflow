@@ -235,6 +235,8 @@ def plot_order_book(
 
 def plot_market_diagnostics(
     history: pd.DataFrame,
+    event_history: pd.DataFrame,
+    debug_history: pd.DataFrame,
     *,
     imbalance_bins: int = 8,
     max_lag: int = 12,
@@ -253,10 +255,21 @@ def plot_market_diagnostics(
     plt = _configure_matplotlib()
     mid_ret = history["mid_price"].diff().fillna(0.0)
     next_ret = mid_ret.shift(-1).fillna(0.0)
-    abs_ret = mid_ret.abs()
-    nonzero_abs_ret = abs_ret.loc[abs_ret > 0.0].reset_index(drop=True)
     spread = history["spread"]
     imbalance = history["depth_imbalance"].clip(-1.0, 1.0)
+
+    phase_order = ["open", "mid", "close"]
+    phase_spread = history.groupby("session_phase")["spread"].mean().reindex(phase_order, fill_value=0.0)
+    if not event_history.empty:
+        phase_activity = (
+            event_history.groupby(["session_phase", "step"])["fill_qty"]
+            .sum()
+            .groupby("session_phase")
+            .mean()
+            .reindex(phase_order, fill_value=0.0)
+        )
+    else:
+        phase_activity = pd.Series(0.0, index=phase_order)
 
     bins = np.linspace(-1.0, 1.0, imbalance_bins + 1)
     bin_index = np.digitize(imbalance, bins[1:-1], right=False)
@@ -264,17 +277,63 @@ def plot_market_diagnostics(
     x_positions = np.arange(len(bins) - 1)
     y_values = np.array([float(binned_signal.get(index, 0.0)) for index in x_positions], dtype=float)
     x_labels = [f"{bins[index]:.2f}\n{bins[index + 1]:.2f}" for index in x_positions]
-    acf_source = nonzero_abs_ret if len(nonzero_abs_ret) >= 2 else abs_ret.reset_index(drop=True)
-    acf = np.array([_safe_autocorr(acf_source, lag) for lag in range(1, max_lag + 1)], dtype=float)
+
+    market_events = event_history.loc[event_history["event_type"] == "market"].copy()
+    buy_count_acf = np.zeros(max_lag, dtype=float)
+    sell_count_acf = np.zeros(max_lag, dtype=float)
+    if not market_events.empty:
+        buy_counts = (
+            market_events.assign(is_buy=(market_events["side"] == "buy").astype(float))
+            .groupby("step")["is_buy"]
+            .sum()
+        )
+        sell_counts = (
+            market_events.assign(is_sell=(market_events["side"] == "sell").astype(float))
+            .groupby("step")["is_sell"]
+            .sum()
+        )
+        buy_count_acf = np.array([_safe_autocorr(buy_counts, lag) for lag in range(1, max_lag + 1)], dtype=float)
+        sell_count_acf = np.array([_safe_autocorr(sell_counts, lag) for lag in range(1, max_lag + 1)], dtype=float)
+
+    vol = history["realized_vol"].fillna(0.0)
+    if vol.nunique() > 1:
+        vol_bins = pd.qcut(vol.rank(method="first"), q=min(5, len(vol)), duplicates="drop")
+        spread_vol = history.groupby(vol_bins, observed=False)["spread"].mean()
+        spread_vol_x = np.arange(len(spread_vol))
+        spread_vol_labels = [f"q{index + 1}" for index in range(len(spread_vol))]
+        spread_vol_y = spread_vol.to_numpy(dtype=float)
+    else:
+        spread_vol_x = np.array([0], dtype=float)
+        spread_vol_labels = ["flat"]
+        spread_vol_y = np.array([float(spread.mean())], dtype=float)
+
+    resiliency_curve = _depletion_resiliency_curve(history)
+    shock_share = (
+        debug_history["shock_state"].value_counts(normalize=True)
+        if not debug_history.empty
+        else pd.Series(dtype=float)
+    )
     regime_share = history["regime"].value_counts(normalize=True).reindex(REGIME_ORDER, fill_value=0.0)
 
-    figure, axes = plt.subplots(2, 2, figsize=figsize or (14, 8.5), constrained_layout=True)
+    figure, axes = plt.subplots(3, 2, figsize=figsize or (15, 10.5), constrained_layout=True)
     figure.suptitle(title or "orderwave diagnostics", fontsize=16, fontweight="bold")
 
-    axes[0, 0].hist(spread, bins=min(18, max(6, len(spread) // 8)), color="#0f766e", alpha=0.9, edgecolor="white")
-    axes[0, 0].set_title("Spread distribution")
-    axes[0, 0].set_xlabel("Spread")
-    axes[0, 0].set_ylabel("Count")
+    phase_x = np.arange(len(phase_order))
+    axes[0, 0].bar(phase_x, phase_spread.to_numpy(dtype=float), color="#0f766e", width=0.6, label="Mean spread")
+    phase_ax2 = axes[0, 0].twinx()
+    phase_ax2.plot(
+        phase_x,
+        phase_activity.to_numpy(dtype=float),
+        color="#f97316",
+        linewidth=1.6,
+        marker="o",
+        label="Filled volume / step",
+    )
+    axes[0, 0].set_title("Session phase profile")
+    axes[0, 0].set_xticks(phase_x)
+    axes[0, 0].set_xticklabels([label.capitalize() for label in phase_order])
+    axes[0, 0].set_ylabel("Spread")
+    phase_ax2.set_ylabel("Filled volume / step")
     axes[0, 0].grid(alpha=0.25, linestyle="--")
 
     axes[0, 1].plot(x_positions, y_values, color="#2563eb", linewidth=1.8, marker="o")
@@ -286,23 +345,39 @@ def plot_market_diagnostics(
     axes[0, 1].set_xticklabels(x_labels)
     axes[0, 1].grid(alpha=0.25, linestyle="--")
 
-    axes[1, 0].bar(np.arange(1, max_lag + 1), acf, color="#f97316", width=0.7)
+    lags = np.arange(1, max_lag + 1)
+    axes[1, 0].plot(lags, buy_count_acf, color="#2563eb", linewidth=1.8, marker="o", label="Buy count")
+    axes[1, 0].plot(lags, sell_count_acf, color="#dc2626", linewidth=1.6, marker="o", label="Sell count")
     axes[1, 0].axhline(0.0, color="#0f172a", linewidth=0.85, alpha=0.45)
-    axes[1, 0].set_title("Non-zero absolute return autocorrelation")
+    axes[1, 0].set_title("Market-flow excitation")
     axes[1, 0].set_xlabel("Lag")
     axes[1, 0].set_ylabel("Autocorr")
     axes[1, 0].grid(alpha=0.25, linestyle="--")
+    axes[1, 0].legend(loc="upper right", frameon=False)
 
-    axes[1, 1].bar(
-        regime_share.index,
-        regime_share.values,
-        color=["#0f766e", "#f97316", "#dc2626"],
-        width=0.65,
-    )
-    axes[1, 1].set_title("Regime occupancy")
-    axes[1, 1].set_ylabel("Share")
-    axes[1, 1].set_ylim(0.0, 1.0)
-    axes[1, 1].grid(axis="y", alpha=0.25, linestyle="--")
+    axes[1, 1].plot(spread_vol_x, spread_vol_y, color="#dc2626", linewidth=1.8, marker="o")
+    axes[1, 1].set_title("Spread-volatility coupling")
+    axes[1, 1].set_xlabel("Volatility bin")
+    axes[1, 1].set_ylabel("Mean spread")
+    axes[1, 1].set_xticks(spread_vol_x)
+    axes[1, 1].set_xticklabels(spread_vol_labels)
+    axes[1, 1].grid(alpha=0.25, linestyle="--")
+
+    axes[2, 0].plot(np.arange(len(resiliency_curve)), resiliency_curve, color="#0891b2", linewidth=1.9, marker="o")
+    axes[2, 0].axhline(1.0, color="#0f172a", linewidth=0.85, alpha=0.35)
+    axes[2, 0].set_title("Depletion resiliency")
+    axes[2, 0].set_xlabel("Lag after depletion")
+    axes[2, 0].set_ylabel("Depth recovery ratio")
+    axes[2, 0].grid(alpha=0.25, linestyle="--")
+
+    occupancy_names = list(REGIME_ORDER) + [name for name in shock_share.index if name != "none"]
+    occupancy_values = list(regime_share.values) + [float(shock_share[name]) for name in shock_share.index if name != "none"]
+    occupancy_colors = ["#0f766e", "#f97316", "#dc2626"] + ["#475569"] * max(0, len(occupancy_values) - 3)
+    axes[2, 1].bar(occupancy_names, occupancy_values, color=occupancy_colors[: len(occupancy_values)], width=0.65)
+    axes[2, 1].set_title("Regime and shock occupancy")
+    axes[2, 1].set_ylabel("Share")
+    axes[2, 1].set_ylim(0.0, max(1.0, max(occupancy_values, default=0.0) * 1.15))
+    axes[2, 1].grid(axis="y", alpha=0.25, linestyle="--")
 
     return figure
 
@@ -442,3 +517,40 @@ def _safe_autocorr(series: pd.Series, lag: int) -> float:
         return 0.0
 
     return float(np.dot(left_centered, right_centered) / denom)
+
+
+def _depletion_resiliency_curve(history: pd.DataFrame, *, horizon: int = 6) -> np.ndarray:
+    if history.empty:
+        return np.ones(horizon + 1, dtype=float)
+
+    total_depth = (
+        history["top_n_bid_qty"].to_numpy(dtype=float)
+        + history["top_n_ask_qty"].to_numpy(dtype=float)
+    )
+    if len(total_depth) <= horizon + 1:
+        return np.ones(horizon + 1, dtype=float)
+
+    candidate_indices: list[int] = []
+    for index in range(1, len(total_depth) - horizon):
+        prev_depth = total_depth[index - 1]
+        current_depth = total_depth[index]
+        if prev_depth <= 0.0:
+            continue
+        drop_ratio = (prev_depth - current_depth) / prev_depth
+        if drop_ratio >= 0.18:
+            candidate_indices.append(index)
+
+    if not candidate_indices:
+        return np.ones(horizon + 1, dtype=float)
+
+    curve = np.zeros(horizon + 1, dtype=float)
+    for lag in range(horizon + 1):
+        ratios = []
+        for index in candidate_indices:
+            baseline = total_depth[index - 1]
+            if baseline <= 0.0:
+                continue
+            ratios.append(total_depth[index + lag] / baseline)
+        curve[lag] = float(np.mean(ratios)) if ratios else 1.0
+
+    return curve

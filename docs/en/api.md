@@ -37,6 +37,9 @@ Return the current snapshot.
 Snapshot fields:
 
 - `step`
+- `day`
+- `session_step`
+- `session_phase`
 - `last_price`
 - `mid_price`
 - `microprice`
@@ -62,6 +65,9 @@ Return compact history from the initial seeded book through the current step.
 Minimum columns:
 
 - `step`
+- `day`
+- `session_step`
+- `session_phase`
 - `last_price`
 - `mid_price`
 - `microprice`
@@ -84,6 +90,9 @@ Columns:
 
 - `step`
 - `event_idx`
+- `day`
+- `session_step`
+- `session_phase`
 - `event_type`
 - `side`
 - `level`
@@ -99,6 +108,27 @@ Columns:
 - `regime`
 
 The log records applied events only. `market` rows include a `fills` list of `(price, qty)` tuples covering the full sweep path.
+
+### `get_debug_history() -> pandas.DataFrame`
+
+Return the event-aligned latent debug stream.
+
+Columns:
+
+- `step`
+- `event_idx`
+- `day`
+- `session_step`
+- `session_phase`
+- `source`
+- `participant_type`
+- `meta_order_id`
+- `meta_order_side`
+- `meta_order_progress`
+- `burst_state`
+- `shock_state`
+
+`get_debug_history()` shares the same `step` and `event_idx` keys as `get_event_history()`. It is intended for advanced inspection and diagnostics rather than the default user workflow.
 
 ### `plot(*, levels: int | None = None, title: str | None = None, figsize: tuple[float, float] | None = None) -> matplotlib.figure.Figure`
 
@@ -118,12 +148,14 @@ Render the current order book on a real price axis. Bid and ask depth are mirror
 
 ### `plot_diagnostics(*, imbalance_bins: int = 8, max_lag: int = 12, title: str | None = None, figsize: tuple[float, float] | None = None) -> matplotlib.figure.Figure`
 
-Render a 2x2 diagnostics figure with:
+Render a 3x2 diagnostics figure with:
 
-- spread distribution
+- session phase spread and filled-volume profile
 - depth imbalance to next mid-return relationship
-- non-zero absolute-return autocorrelation
-- regime occupancy
+- market-flow excitation profile
+- spread-volatility coupling
+- depletion resiliency
+- regime and shock occupancy
 
 This method requires at least two recorded history rows.
 
@@ -144,5 +176,10 @@ from orderwave.config import MarketConfig
 - `cancel_rate_scale`
 - `fair_price_vol_scale`
 - `regime_transition_scale`
+- `steps_per_day`
+- `seasonality_scale`
+- `excitation_scale`
+- `meta_order_scale`
+- `shock_scale`
 
 `config` passed to `Market` can be either a `MarketConfig` instance or a plain mapping with the same keys.

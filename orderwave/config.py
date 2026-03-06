@@ -42,6 +42,16 @@ class MarketConfig:
         Multiplier applied to hidden fair-price volatility.
     regime_transition_scale:
         Multiplier applied to regime transition pressure.
+    steps_per_day:
+        Number of simulator steps treated as a synthetic trading session.
+    seasonality_scale:
+        Strength of the open/mid/close intraday seasonality profile.
+    excitation_scale:
+        Strength of Hawkes-like self-excitation traces.
+    meta_order_scale:
+        Strength of latent directional meta-order spawning and persistence.
+    shock_scale:
+        Strength of exogenous shock spawning and impact.
     """
 
     preset: PresetName = "balanced"
@@ -53,6 +63,11 @@ class MarketConfig:
     cancel_rate_scale: float = 1.0
     fair_price_vol_scale: float = 1.0
     regime_transition_scale: float = 1.0
+    steps_per_day: int = 390
+    seasonality_scale: float = 1.0
+    excitation_scale: float = 1.0
+    meta_order_scale: float = 1.0
+    shock_scale: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -104,6 +119,19 @@ class PresetParams:
     fair_jump_prob: float
     fair_jump_scale: float
     fair_mean_reversion: float
+    slow_fair_vol: float
+    fast_fair_reversion: float
+    fast_fair_vol: float
+    hidden_vol_reversion: float
+    hidden_vol_vol: float
+    excitation_decay: float
+    meta_spawn_prob: float
+    meta_qty_log_mean: float
+    meta_qty_log_sigma: float
+    meta_duration_mean: float
+    shock_spawn_prob: float
+    shock_duration_mean: float
+    resiliency_half_life: float
     transition_matrix: Mapping[RegimeName, Mapping[RegimeName, float]]
     regimes: Mapping[RegimeName, RegimeProfile]
 
@@ -147,6 +175,19 @@ _PRESETS: dict[PresetName, PresetParams] = {
         fair_jump_prob=0.015,
         fair_jump_scale=1.2,
         fair_mean_reversion=0.14,
+        slow_fair_vol=0.06,
+        fast_fair_reversion=0.32,
+        fast_fair_vol=0.22,
+        hidden_vol_reversion=0.14,
+        hidden_vol_vol=0.08,
+        excitation_decay=0.74,
+        meta_spawn_prob=0.018,
+        meta_qty_log_mean=2.4,
+        meta_qty_log_sigma=0.45,
+        meta_duration_mean=26.0,
+        shock_spawn_prob=0.008,
+        shock_duration_mean=12.0,
+        resiliency_half_life=7.0,
         transition_matrix={
             "calm": {"calm": 0.9, "directional": 0.06, "stressed": 0.04},
             "directional": {"calm": 0.14, "directional": 0.74, "stressed": 0.12},
@@ -196,6 +237,19 @@ _PRESETS: dict[PresetName, PresetParams] = {
         fair_jump_prob=0.018,
         fair_jump_scale=1.6,
         fair_mean_reversion=0.12,
+        slow_fair_vol=0.08,
+        fast_fair_reversion=0.28,
+        fast_fair_vol=0.28,
+        hidden_vol_reversion=0.12,
+        hidden_vol_vol=0.09,
+        excitation_decay=0.78,
+        meta_spawn_prob=0.026,
+        meta_qty_log_mean=2.55,
+        meta_qty_log_sigma=0.48,
+        meta_duration_mean=34.0,
+        shock_spawn_prob=0.01,
+        shock_duration_mean=14.0,
+        resiliency_half_life=9.0,
         transition_matrix={
             "calm": {"calm": 0.9, "directional": 0.07, "stressed": 0.03},
             "directional": {"calm": 0.08, "directional": 0.84, "stressed": 0.08},
@@ -245,6 +299,19 @@ _PRESETS: dict[PresetName, PresetParams] = {
         fair_jump_prob=0.025,
         fair_jump_scale=2.2,
         fair_mean_reversion=0.11,
+        slow_fair_vol=0.09,
+        fast_fair_reversion=0.24,
+        fast_fair_vol=0.36,
+        hidden_vol_reversion=0.1,
+        hidden_vol_vol=0.12,
+        excitation_decay=0.82,
+        meta_spawn_prob=0.022,
+        meta_qty_log_mean=2.5,
+        meta_qty_log_sigma=0.5,
+        meta_duration_mean=24.0,
+        shock_spawn_prob=0.015,
+        shock_duration_mean=16.0,
+        resiliency_half_life=11.0,
         transition_matrix={
             "calm": {"calm": 0.88, "directional": 0.06, "stressed": 0.06},
             "directional": {"calm": 0.09, "directional": 0.78, "stressed": 0.13},
@@ -284,6 +351,8 @@ def coerce_config(config: MarketConfig | Mapping[str, object] | None, levels: in
         raise ValueError("book_buffer_levels must be greater than or equal to levels")
     if market_config.flow_window <= 0 or market_config.vol_window <= 0:
         raise ValueError("flow_window and vol_window must be positive")
+    if market_config.steps_per_day <= 0:
+        raise ValueError("steps_per_day must be positive")
 
     for field_name in (
         "limit_rate_scale",
@@ -291,6 +360,10 @@ def coerce_config(config: MarketConfig | Mapping[str, object] | None, levels: in
         "cancel_rate_scale",
         "fair_price_vol_scale",
         "regime_transition_scale",
+        "seasonality_scale",
+        "excitation_scale",
+        "meta_order_scale",
+        "shock_scale",
     ):
         if getattr(market_config, field_name) <= 0.0:
             raise ValueError(f"{field_name} must be positive")

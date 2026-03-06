@@ -7,6 +7,9 @@ import pandas as pd
 
 SUMMARY_COLUMNS = [
     "step",
+    "day",
+    "session_step",
+    "session_phase",
     "last_price",
     "mid_price",
     "microprice",
@@ -27,6 +30,9 @@ SUMMARY_COLUMNS = [
 EVENT_COLUMNS = [
     "step",
     "event_idx",
+    "day",
+    "session_step",
+    "session_phase",
     "event_type",
     "side",
     "level",
@@ -42,12 +48,28 @@ EVENT_COLUMNS = [
     "regime",
 ]
 
+DEBUG_COLUMNS = [
+    "step",
+    "event_idx",
+    "day",
+    "session_step",
+    "session_phase",
+    "source",
+    "participant_type",
+    "meta_order_id",
+    "meta_order_side",
+    "meta_order_progress",
+    "burst_state",
+    "shock_state",
+]
+
 
 class HistoryBuffer:
     def __init__(self) -> None:
         self._current_snapshot: dict[str, object] | None = None
         self._rows: list[dict[str, object]] = []
         self._event_rows: list[dict[str, object]] = []
+        self._debug_rows: list[dict[str, object]] = []
 
     def record(
         self,
@@ -61,6 +83,9 @@ class HistoryBuffer:
         self._current_snapshot = copy.deepcopy(snapshot)
         row = {
             "step": snapshot["step"],
+            "day": snapshot["day"],
+            "session_step": snapshot["session_step"],
+            "session_phase": snapshot["session_phase"],
             "last_price": snapshot["last_price"],
             "mid_price": snapshot["mid_price"],
             "microprice": snapshot["microprice"],
@@ -82,6 +107,9 @@ class HistoryBuffer:
     def record_event(self, event_row: dict[str, object]) -> None:
         self._event_rows.append(copy.deepcopy(event_row))
 
+    def record_debug(self, debug_row: dict[str, object]) -> None:
+        self._debug_rows.append(copy.deepcopy(debug_row))
+
     def current(self) -> dict[str, object]:
         if self._current_snapshot is None:
             raise ValueError("no snapshot recorded")
@@ -92,3 +120,6 @@ class HistoryBuffer:
 
     def event_dataframe(self) -> pd.DataFrame:
         return pd.DataFrame(self._event_rows, columns=EVENT_COLUMNS).copy(deep=True)
+
+    def debug_dataframe(self) -> pd.DataFrame:
+        return pd.DataFrame(self._debug_rows, columns=DEBUG_COLUMNS).copy(deep=True)

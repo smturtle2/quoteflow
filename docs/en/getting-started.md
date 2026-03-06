@@ -24,6 +24,8 @@ market.gen(steps=1_000)
 
 snapshot = market.get()
 history = market.get_history()
+events = market.get_event_history()
+debug = market.get_debug_history()
 figure = market.plot()
 ```
 
@@ -55,7 +57,7 @@ diagnostics = market.plot_diagnostics()
 
 - `plot()` renders price, spread, trade strength, and a signed visible-book heatmap
 - `plot_book()` renders the current order book on a real price axis
-- `plot_diagnostics()` renders spread, imbalance, volatility, and regime diagnostics
+- `plot_diagnostics()` renders session profile, market-flow excitation, imbalance lead, spread-volatility coupling, resiliency, and regime or shock occupancy
 
 Every plotting method returns a `matplotlib.figure.Figure`. Saving or displaying the figure stays under user control.
 
@@ -71,8 +73,14 @@ The current state returned by `get()` is intentionally compact.
 
 - `mid_price` follows the best bid and ask
 - `last_price` only updates on real executions
+- `day`, `session_step`, and `session_phase` expose the synthetic session clock
 - `trade_strength` is a symmetric `[-1, 1]` signed flow indicator
 - `bids` and `asks` contain up to `levels` visible price levels
+
+## Advanced Inspection
+
+- `get_event_history()` returns the applied event stream only
+- `get_debug_history()` returns participant type, meta-order progress, burst state, and shock state aligned to the same `step` and `event_idx` keys
 
 ## Reproducibility
 

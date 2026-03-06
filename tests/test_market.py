@@ -14,6 +14,9 @@ def test_market_initializes_snapshot_and_history() -> None:
     history = market.get_history()
 
     assert snapshot["step"] == 0
+    assert snapshot["day"] == 0
+    assert snapshot["session_step"] == 0
+    assert snapshot["session_phase"] == "open"
     assert snapshot["last_price"] == 100.0
     assert snapshot["best_bid"] < snapshot["best_ask"]
     assert len(snapshot["bids"]) <= market.levels
@@ -44,6 +47,7 @@ def test_same_seed_reproduces_and_other_seed_differs() -> None:
     market_c.gen(steps=100)
 
     pd.testing.assert_frame_equal(market_a.get_history(), market_b.get_history())
+    pd.testing.assert_frame_equal(market_a.get_debug_history(), market_b.get_debug_history())
     assert not market_a.get_event_history().equals(market_c.get_event_history())
 
 
@@ -55,6 +59,9 @@ def test_history_contains_summary_columns_only() -> None:
 
     expected = {
         "step",
+        "day",
+        "session_step",
+        "session_phase",
         "last_price",
         "mid_price",
         "microprice",
