@@ -67,9 +67,9 @@ DEBUG_COLUMNS = [
 class HistoryBuffer:
     def __init__(self) -> None:
         self._current_snapshot: dict[str, object] | None = None
-        self._rows: list[dict[str, object]] = []
-        self._event_rows: list[dict[str, object]] = []
-        self._debug_rows: list[dict[str, object]] = []
+        self._rows: list[tuple[object, ...]] = []
+        self._event_rows: list[tuple[object, ...]] = []
+        self._debug_rows: list[tuple[object, ...]] = []
 
     def record(
         self,
@@ -80,35 +80,36 @@ class HistoryBuffer:
         realized_vol: float,
         signed_flow: float,
     ) -> None:
-        self._current_snapshot = copy.deepcopy(snapshot)
-        row = {
-            "step": snapshot["step"],
-            "day": snapshot["day"],
-            "session_step": snapshot["session_step"],
-            "session_phase": snapshot["session_phase"],
-            "last_price": snapshot["last_price"],
-            "mid_price": snapshot["mid_price"],
-            "microprice": snapshot["microprice"],
-            "best_bid": snapshot["best_bid"],
-            "best_ask": snapshot["best_ask"],
-            "spread": snapshot["spread"],
-            "buy_aggr_volume": snapshot["buy_aggr_volume"],
-            "sell_aggr_volume": snapshot["sell_aggr_volume"],
-            "trade_strength": snapshot["trade_strength"],
-            "depth_imbalance": snapshot["depth_imbalance"],
-            "regime": snapshot["regime"],
-            "top_n_bid_qty": top_n_bid_qty,
-            "top_n_ask_qty": top_n_ask_qty,
-            "realized_vol": realized_vol,
-            "signed_flow": signed_flow,
-        }
-        self._rows.append(row)
+        self._current_snapshot = snapshot
+        self._rows.append(
+            (
+                snapshot["step"],
+                snapshot["day"],
+                snapshot["session_step"],
+                snapshot["session_phase"],
+                snapshot["last_price"],
+                snapshot["mid_price"],
+                snapshot["microprice"],
+                snapshot["best_bid"],
+                snapshot["best_ask"],
+                snapshot["spread"],
+                snapshot["buy_aggr_volume"],
+                snapshot["sell_aggr_volume"],
+                snapshot["trade_strength"],
+                snapshot["depth_imbalance"],
+                snapshot["regime"],
+                top_n_bid_qty,
+                top_n_ask_qty,
+                realized_vol,
+                signed_flow,
+            )
+        )
 
     def record_event(self, event_row: dict[str, object]) -> None:
-        self._event_rows.append(copy.deepcopy(event_row))
+        self._event_rows.append(tuple(event_row[column] for column in EVENT_COLUMNS))
 
     def record_debug(self, debug_row: dict[str, object]) -> None:
-        self._debug_rows.append(copy.deepcopy(debug_row))
+        self._debug_rows.append(tuple(debug_row[column] for column in DEBUG_COLUMNS))
 
     def current(self) -> dict[str, object]:
         if self._current_snapshot is None:
@@ -116,10 +117,10 @@ class HistoryBuffer:
         return copy.deepcopy(self._current_snapshot)
 
     def dataframe(self) -> pd.DataFrame:
-        return pd.DataFrame(self._rows, columns=SUMMARY_COLUMNS).copy(deep=True)
+        return pd.DataFrame.from_records(self._rows, columns=SUMMARY_COLUMNS)
 
     def event_dataframe(self) -> pd.DataFrame:
-        return pd.DataFrame(self._event_rows, columns=EVENT_COLUMNS).copy(deep=True)
+        return pd.DataFrame.from_records(self._event_rows, columns=EVENT_COLUMNS)
 
     def debug_dataframe(self) -> pd.DataFrame:
-        return pd.DataFrame(self._debug_rows, columns=DEBUG_COLUMNS).copy(deep=True)
+        return pd.DataFrame.from_records(self._debug_rows, columns=DEBUG_COLUMNS)

@@ -132,6 +132,9 @@ class PresetParams:
     shock_spawn_prob: float
     shock_duration_mean: float
     resiliency_half_life: float
+    target_limit_events: float
+    target_market_events: float
+    target_cancel_events: float
     transition_matrix: Mapping[RegimeName, Mapping[RegimeName, float]]
     regimes: Mapping[RegimeName, RegimeProfile]
 
@@ -145,9 +148,9 @@ _PRESETS: dict[PresetName, PresetParams] = {
         hump_weight=1.1,
         hump_center=2.5,
         hump_sigma=1.25,
-        imbalance_weight=0.58,
-        fair_weight=0.42,
-        flow_weight=0.28,
+        imbalance_weight=0.32,
+        fair_weight=0.22,
+        flow_weight=0.16,
         imbalance_decay=2.8,
         fair_decay=2.2,
         flow_decay=1.8,
@@ -164,9 +167,9 @@ _PRESETS: dict[PresetName, PresetParams] = {
         limit_qty_log_sigma=0.55,
         market_qty_log_mean=1.0,
         market_qty_log_sigma=0.45,
-        market_fair_weight=0.42,
-        market_flow_weight=0.32,
-        market_thin_weight=0.7,
+        market_fair_weight=0.22,
+        market_flow_weight=0.16,
+        market_thin_weight=0.52,
         market_spread_weight=0.45,
         cancel_depth_weight=0.16,
         cancel_vol_weight=1.6,
@@ -174,20 +177,23 @@ _PRESETS: dict[PresetName, PresetParams] = {
         cancel_stale_weight=0.12,
         fair_jump_prob=0.015,
         fair_jump_scale=1.2,
-        fair_mean_reversion=0.14,
-        slow_fair_vol=0.06,
+        fair_mean_reversion=0.22,
+        slow_fair_vol=0.03,
         fast_fair_reversion=0.32,
-        fast_fair_vol=0.22,
+        fast_fair_vol=0.14,
         hidden_vol_reversion=0.14,
-        hidden_vol_vol=0.08,
-        excitation_decay=0.74,
-        meta_spawn_prob=0.018,
+        hidden_vol_vol=0.05,
+        excitation_decay=0.6,
+        meta_spawn_prob=0.0045,
         meta_qty_log_mean=2.4,
         meta_qty_log_sigma=0.45,
-        meta_duration_mean=26.0,
-        shock_spawn_prob=0.008,
-        shock_duration_mean=12.0,
+        meta_duration_mean=20.0,
+        shock_spawn_prob=0.0025,
+        shock_duration_mean=9.0,
         resiliency_half_life=7.0,
+        target_limit_events=5.5,
+        target_market_events=0.85,
+        target_cancel_events=10.5,
         transition_matrix={
             "calm": {"calm": 0.9, "directional": 0.06, "stressed": 0.04},
             "directional": {"calm": 0.14, "directional": 0.74, "stressed": 0.12},
@@ -250,6 +256,9 @@ _PRESETS: dict[PresetName, PresetParams] = {
         shock_spawn_prob=0.01,
         shock_duration_mean=14.0,
         resiliency_half_life=9.0,
+        target_limit_events=5.0,
+        target_market_events=0.85,
+        target_cancel_events=10.5,
         transition_matrix={
             "calm": {"calm": 0.9, "directional": 0.07, "stressed": 0.03},
             "directional": {"calm": 0.08, "directional": 0.84, "stressed": 0.08},
@@ -312,6 +321,9 @@ _PRESETS: dict[PresetName, PresetParams] = {
         shock_spawn_prob=0.015,
         shock_duration_mean=16.0,
         resiliency_half_life=11.0,
+        target_limit_events=6.0,
+        target_market_events=1.1,
+        target_cancel_events=12.5,
         transition_matrix={
             "calm": {"calm": 0.88, "directional": 0.06, "stressed": 0.06},
             "directional": {"calm": 0.09, "directional": 0.78, "stressed": 0.13},

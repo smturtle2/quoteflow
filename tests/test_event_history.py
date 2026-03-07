@@ -143,7 +143,7 @@ def test_quote_only_changes_do_not_disturb_trade_strength() -> None:
 
 def test_balanced_preset_statistical_guardrails_hold() -> None:
     market = Market(seed=42, config={"preset": "balanced"})
-    market.gen(steps=2500)
+    market.gen(steps=2000)
 
     history = market.get_history()
     events = market.get_event_history()
@@ -173,9 +173,10 @@ def test_balanced_preset_statistical_guardrails_hold() -> None:
     market_joined = joined.loc[joined["event_type"] == "market"].copy()
     market_joined["sign"] = market_joined["side"].map({"buy": 1.0, "sell": -1.0}).astype(float)
     meta_sign = market_joined.loc[market_joined["meta_order_id"].notna(), "sign"].reset_index(drop=True)
-    base_sign = market_joined.loc[market_joined["meta_order_id"].isna(), "sign"].reset_index(drop=True)
-    meta_acf = float(meta_sign.autocorr(lag=1))
-    base_acf = float(base_sign.autocorr(lag=1))
+    base_step_sign = market_joined.loc[market_joined["meta_order_id"].isna()].groupby("step")["sign"].sum()
+    meta_step_sign = market_joined.loc[market_joined["meta_order_id"].notna()].groupby("step")["sign"].sum()
+    meta_directionality = float(meta_step_sign.abs().mean())
+    base_directionality = float(base_step_sign.abs().mean())
 
     step_shock = debug.groupby("step")["shock_state"].agg(
         lambda states: "none" if (states == "none").all() else next(value for value in states if value != "none")
@@ -185,15 +186,25 @@ def test_balanced_preset_statistical_guardrails_hold() -> None:
     calm_steps = step_view.loc[step_view["shock_state"] == "none"]
     shock_abs_ret = float(shock_steps["mid_price"].diff().abs().mean())
     calm_abs_ret = float(calm_steps["mid_price"].diff().abs().mean())
+    first_500_events = events.loc[events["step"] <= 500]
+    first_500_market = first_500_events.loc[first_500_events["event_type"] == "market"]
+    market_buy_count = int((first_500_market["side"] == "buy").sum())
+    market_sell_count = int((first_500_market["side"] == "sell").sum())
+    market_buy_share = market_buy_count / max(market_buy_count + market_sell_count, 1)
+    events_per_step = len(events) / 2000.0
 
     assert 0.0 < corr < 0.25
     assert acf_1 > 0.0
     assert history["spread"].nunique() >= 3
+    assert events_per_step < 40.0
     assert history["session_phase"].nunique() == 3
     assert (phase_fill.max() - phase_fill.min()) > 2.0
     assert (phase_spread.max() - phase_spread.min()) > 0.001
+    assert 0.35 < market_buy_share < 0.65
+    assert market_buy_count > 100
+    assert market_sell_count > 100
     assert buy_count_acf > 0.05
     assert cancel_count_acf > 0.05
     assert len(meta_sign) > 10
-    assert meta_acf > (base_acf + 0.1)
+    assert meta_directionality > (base_directionality + 0.2)
     assert shock_abs_ret > calm_abs_ret

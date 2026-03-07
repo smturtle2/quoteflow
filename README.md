@@ -57,6 +57,20 @@ print(debug.tail())
 overview.savefig("orderwave-overview.png")
 ```
 
+## Benchmark
+
+The repository benchmark reports both throughput and micro-batch realism metrics.
+
+```bash
+python benchmarks/benchmark.py --steps 5000 --preset balanced
+```
+
+Expected output includes:
+
+- `steps_per_second`
+- `events_per_step`
+- `market_flow=buy=... sell=... buy_share=...`
+
 ## API Surface
 
 | API | Purpose |

@@ -75,6 +75,20 @@ The repository includes [`examples/plot_market_heatmap.py`](https://github.com/s
 python examples/plot_market_heatmap.py --steps 2000 --preset trend --output artifacts/orderwave_heatmap.png
 ```
 
+## Benchmark
+
+Use the benchmark script when you want to validate both throughput and event density after engine changes.
+
+```bash
+python benchmarks/benchmark.py --steps 5000 --preset balanced
+```
+
+The script reports:
+
+- `steps_per_second`
+- `events_per_step`
+- `market_flow=buy=... sell=... buy_share=...`
+
 ## Preset Comparison
 
 ![Preset comparison](../assets/orderwave-built-in-presets.png)

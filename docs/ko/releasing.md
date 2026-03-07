@@ -9,7 +9,7 @@ PyPI 배포는 [`workflow.yml`](https://github.com/smturtle2/quoteflow/blob/main
 1. `pyproject.toml`의 `version`을 올립니다
 2. 커밋 후 `main`에 푸시합니다
 3. GitHub `Releases`를 엽니다
-4. `v0.2.1` 같은 태그로 새 릴리스를 작성합니다
+4. `v0.4.1` 같은 태그로 새 릴리스를 작성합니다
 5. 릴리스를 publish 합니다
 6. GitHub Actions가 테스트, 빌드, PyPI 업로드를 수행할 때까지 기다립니다
 

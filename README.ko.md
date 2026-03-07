@@ -57,6 +57,20 @@ print(debug.tail())
 overview.savefig("orderwave-overview.png")
 ```
 
+## 벤치마크
+
+저장소의 benchmark 스크립트는 처리량과 micro-batch 질감을 같이 출력합니다.
+
+```bash
+python benchmarks/benchmark.py --steps 5000 --preset balanced
+```
+
+출력에는 다음 값이 포함됩니다.
+
+- `steps_per_second`
+- `events_per_step`
+- `market_flow=buy=... sell=... buy_share=...`
+
 ## API 표면
 
 | API | 설명 |

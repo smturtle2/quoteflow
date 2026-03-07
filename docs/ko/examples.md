@@ -75,6 +75,20 @@ print(joined[["step", "event_idx", "event_type", "participant_type", "meta_order
 python examples/plot_market_heatmap.py --steps 2000 --preset trend --output artifacts/orderwave_heatmap.png
 ```
 
+## 벤치마크
+
+엔진 변경 후 처리량과 event density를 함께 확인하려면 benchmark 스크립트를 사용하면 됩니다.
+
+```bash
+python benchmarks/benchmark.py --steps 5000 --preset balanced
+```
+
+스크립트는 다음 값을 출력합니다.
+
+- `steps_per_second`
+- `events_per_step`
+- `market_flow=buy=... sell=... buy_share=...`
+
 ## Preset 비교
 
 ![Preset comparison](../assets/orderwave-built-in-presets.png)

@@ -33,7 +33,7 @@ from orderwave.model import (
     update_excitation_state,
     update_resiliency_state,
 )
-from orderwave.utils import coerce_quantity, price_to_tick, tick_to_price
+from orderwave.utils import EPSILON, coerce_quantity, price_to_tick, tick_to_price
 from orderwave.visualization import (
     VisualHistoryRow,
     capture_visual_history_row,
@@ -101,11 +101,11 @@ class Market:
         self._session_phase = "open"
         self._session_progress = 0.0
 
-        self._hidden_fair_base_tick = float(init_tick)
+        self._hidden_fair_base_tick = float(init_tick) + (self._params.initial_spread_ticks / 2.0)
         self._hidden_fair_slow = 0.0
         self._hidden_fair_fast = 0.0
-        self._hidden_fair_jump = self._params.initial_spread_ticks / 2.0
-        self._hidden_fair_tick = self._hidden_fair_base_tick + self._hidden_fair_jump
+        self._hidden_fair_jump = 0.0
+        self._hidden_fair_tick = self._hidden_fair_base_tick
         self._hidden_vol = 0.3
 
         self._excitation = {key: 0.0 for key in EXCITATION_KEYS}
@@ -164,6 +164,7 @@ class Market:
             config=self.config,
             params=self._params,
         )
+        self._hidden_fair_base_tick = previous_features.mid_tick
         self._hidden_fair_slow, self._hidden_fair_fast, self._hidden_fair_jump = advance_hidden_fair_state(
             self._hidden_fair_slow,
             self._hidden_fair_fast,
@@ -378,14 +379,14 @@ class Market:
             if applied_tick is None:
                 return None
             self._ensure_two_sided_book()
-            event_features = self._compute_features()
+            event_state = self._compute_event_state()
             self._update_after_event_state(
                 event_type="limit",
                 side=event["side"],
                 level=event["level"],
                 applied_qty=event["qty"],
                 fill_qty=0.0,
-                features=event_features,
+                event_state=event_state,
             )
             event_row = self._build_event_row(
                 event_idx=event_idx,
@@ -397,7 +398,7 @@ class Market:
                 applied_qty=event["qty"],
                 fill_qty=0.0,
                 fills=[],
-                features=event_features,
+                mid_price_after=event_state["mid_price"],
             )
             debug_row = self._build_debug_row(
                 event_idx=event_idx,
@@ -416,14 +417,14 @@ class Market:
             self._last_trade_qty = float(result.filled_qty)
             self._consume_meta_order(event.get("meta_order_side"), result.filled_qty)
             self._ensure_two_sided_book()
-            event_features = self._compute_features()
+            event_state = self._compute_event_state()
             self._update_after_event_state(
                 event_type="market",
                 side=event["side"],
                 level=None,
                 applied_qty=result.filled_qty,
                 fill_qty=result.filled_qty,
-                features=event_features,
+                event_state=event_state,
             )
             event_row = self._build_event_row(
                 event_idx=event_idx,
@@ -438,7 +439,7 @@ class Market:
                     (tick_to_price(fill_tick, self.tick_size), float(fill_qty))
                     for fill_tick, fill_qty in result.fills
                 ],
-                features=event_features,
+                mid_price_after=event_state["mid_price"],
             )
             debug_row = self._build_debug_row(
                 event_idx=event_idx,
@@ -452,14 +453,14 @@ class Market:
         if canceled_qty <= 0:
             return None
         self._ensure_two_sided_book()
-        event_features = self._compute_features()
+        event_state = self._compute_event_state()
         self._update_after_event_state(
             event_type="cancel",
             side=event["side"],
             level=event.get("level"),
             applied_qty=canceled_qty,
             fill_qty=0.0,
-            features=event_features,
+            event_state=event_state,
         )
         event_row = self._build_event_row(
             event_idx=event_idx,
@@ -471,7 +472,7 @@ class Market:
             applied_qty=canceled_qty,
             fill_qty=0.0,
             fills=[],
-            features=event_features,
+            mid_price_after=event_state["mid_price"],
         )
         debug_row = self._build_debug_row(
             event_idx=event_idx,
@@ -567,10 +568,10 @@ class Market:
                 scale=self.config.seasonality_scale,
             ),
             hidden_vol=self._hidden_vol,
-            excitation=dict(self._excitation),
+            excitation=self._excitation,
             burst_state=self._burst_state,
             shock=self._shock_state,
-            meta_orders=dict(self._meta_orders),
+            meta_orders=self._meta_orders,
             spread_excess=self._spread_excess,
             best_depth_deficit_bid=self._best_depth_deficit_bid,
             best_depth_deficit_ask=self._best_depth_deficit_ask,
@@ -585,7 +586,7 @@ class Market:
         level: int | None,
         applied_qty: float,
         fill_qty: float,
-        features: MarketFeatures,
+        event_state: dict[str, float],
     ) -> None:
         self._excitation = update_excitation_state(
             self._excitation,
@@ -597,15 +598,17 @@ class Market:
             config=self.config,
         )
         self._burst_state = derive_burst_state(self._excitation)
-        seasonality_depth = self._current_context().seasonality["depth"]
+        seasonality_depth = seasonality_multipliers(
+            self._session_phase,
+            session_progress=self._session_progress,
+            scale=self.config.seasonality_scale,
+        )["depth"]
         (
             self._spread_excess,
             self._best_depth_deficit_bid,
             self._best_depth_deficit_ask,
             self._imbalance_displacement,
         ) = update_resiliency_state(
-            book=self._book,
-            features=features,
             seasonality_depth=seasonality_depth,
             current_spread_excess=self._spread_excess,
             current_bid_deficit=self._best_depth_deficit_bid,
@@ -613,8 +616,27 @@ class Market:
             current_imbalance_displacement=self._imbalance_displacement,
             shock=self._shock_state,
             meta_orders=self._meta_orders,
+            spread_ticks=int(event_state["spread_ticks"]),
+            depth_imbalance=event_state["depth_imbalance"],
+            best_bid_qty=int(event_state["best_bid_qty"]),
+            best_ask_qty=int(event_state["best_ask_qty"]),
             params=self._params,
         )
+
+    def _compute_event_state(self) -> dict[str, float]:
+        best_bid_qty = self._book.best_qty("bid")
+        best_ask_qty = self._book.best_qty("ask")
+        bid_depth = float(sum(qty for _, qty in self._book.top_levels("bid", self.levels)))
+        ask_depth = float(sum(qty for _, qty in self._book.top_levels("ask", self.levels)))
+        mid_price = tick_to_price((self._book.best_bid_tick + self._book.best_ask_tick) / 2.0, self.tick_size)
+        depth_imbalance = (bid_depth - ask_depth) / max(bid_depth + ask_depth, EPSILON)
+        return {
+            "mid_price": float(mid_price),
+            "spread_ticks": float(self._book.spread_ticks),
+            "depth_imbalance": float(depth_imbalance),
+            "best_bid_qty": float(best_bid_qty),
+            "best_ask_qty": float(best_ask_qty),
+        }
 
     def _record_current_state(self) -> None:
         features = self._compute_features()
@@ -681,7 +703,7 @@ class Market:
         applied_qty: int | float,
         fill_qty: int | float,
         fills: list[tuple[float, float]],
-        features: MarketFeatures,
+        mid_price_after: float,
     ) -> dict[str, object]:
         return {
             "step": self._step + 1,
@@ -699,7 +721,7 @@ class Market:
             "fills": list(fills),
             "best_bid_after": tick_to_price(self._book.best_bid_tick, self.tick_size),
             "best_ask_after": tick_to_price(self._book.best_ask_tick, self.tick_size),
-            "mid_price_after": features.mid_price,
+            "mid_price_after": float(mid_price_after),
             "last_trade_price_after": float(self._last_trade_price),
             "regime": self._regime,
         }

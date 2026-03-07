@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, replace
-from typing import Any, Literal, Mapping
+from typing import Any, Literal, Mapping, Sequence
 
 import numpy as np
 
@@ -211,31 +211,33 @@ def advance_hidden_fair_state(
     meta_signal = _meta_signal(context.meta_orders)
     shock_signal = _shock_directional_signal(context.shock)
 
-    slow_noise = params.slow_fair_vol * context.hidden_vol * rng.normal()
-    next_slow = slow_component
-    next_slow += profile.fair_drift
-    next_slow += 0.025 * flow_signal
-    next_slow += 0.03 * meta_signal
-    next_slow += 0.015 * shock_signal
+    slow_target = (
+        0.04 * flow_signal
+        + 0.02 * depth_signal
+        + 0.4 * meta_signal
+        + 0.25 * shock_signal
+    )
+    slow_noise = params.slow_fair_vol * (0.35 + (0.45 * context.hidden_vol)) * rng.normal()
+    next_slow = slow_component + 0.16 * (slow_target - slow_component)
+    next_slow += profile.fair_drift * slow_target
     next_slow += slow_noise
-    next_slow *= 0.992
 
     fast_target = (
-        0.55 * flow_signal
-        + 0.35 * depth_signal
-        + 0.15 * return_signal
-        + 0.18 * shock_signal
-        - 0.12 * context.imbalance_displacement
+        0.06 * flow_signal
+        + 0.03 * depth_signal
+        + 0.06 * return_signal
+        + 0.12 * shock_signal
+        - 0.03 * context.imbalance_displacement
     )
     fast_noise = params.fast_fair_vol * math.sqrt(context.hidden_vol) * rng.normal()
     next_fast = fast_component + params.fast_fair_reversion * (fast_target - fast_component) + fast_noise
 
-    next_jump = jump_component * 0.72
+    next_jump = jump_component * 0.45
     if context.shock is not None and context.shock.name == "fair_jump":
         jump_sign = 1.0 if context.shock.side == "buy" else -1.0
-        next_jump += jump_sign * context.shock.intensity * (1.1 + 0.2 * rng.normal())
+        next_jump += jump_sign * context.shock.intensity * (0.6 + 0.1 * rng.normal())
     elif rng.random() < params.fair_jump_prob:
-        next_jump += rng.normal(0.0, params.fair_jump_scale)
+        next_jump += rng.normal(0.0, params.fair_jump_scale * 0.55)
 
     return float(next_slow), float(next_fast), float(next_jump)
 
@@ -292,7 +294,7 @@ def advance_meta_orders(
                 updated[side] = aged
 
     fair_gap = hidden_fair_tick - features.mid_tick
-    directional_bias = _bounded_signal(fair_gap, scale=2.5) + (0.8 * _bounded_signal(features.recent_flow_imbalance, scale=0.8))
+    directional_bias = _bounded_signal(fair_gap, scale=2.7) + (0.45 * _bounded_signal(features.recent_flow_imbalance, scale=0.9))
     regime_scale = {"calm": 0.7, "directional": 1.15, "stressed": 0.95}[regime]
     spawn_scale = params.meta_spawn_prob * config.meta_order_scale * context.seasonality["meta"] * regime_scale
     if context.shock is not None and context.shock.name == "one_sided_taker_surge":
@@ -303,11 +305,11 @@ def advance_meta_orders(
             continue
         side_sign = 1.0 if side == "buy" else -1.0
         directional_push = max(side_sign * directional_bias, 0.0)
-        spawn_prob = clamp(spawn_scale * (0.55 + directional_push), 0.0, 0.2)
+        spawn_prob = clamp(spawn_scale * (0.35 + (0.6 * directional_push)), 0.0, 0.12)
         if rng.random() >= spawn_prob:
             continue
         qty = max(8.0, rng.lognormal(params.meta_qty_log_mean, params.meta_qty_log_sigma))
-        urgency = float(clamp(0.7 + directional_push + (0.18 * rng.normal()), 0.45, 1.8))
+        urgency = float(clamp(0.55 + (0.55 * directional_push) + (0.14 * rng.normal()), 0.4, 1.4))
         decay_half_life = max(6, int(rng.poisson(params.meta_duration_mean) + 4))
         updated[side] = MetaOrderState(
             id=next_meta_order_id,
@@ -339,13 +341,13 @@ def advance_shock_state(
 
     regime_scale = {"calm": 0.65, "directional": 1.0, "stressed": 1.4}[regime]
     spawn_prob = params.shock_spawn_prob * config.shock_scale * context.seasonality["shock"] * regime_scale
-    spawn_prob *= 0.75 + (0.45 * clamp(context.hidden_vol, 0.0, 2.0))
+    spawn_prob *= 0.7 + (0.3 * clamp(context.hidden_vol, 0.0, 2.0))
     if rng.random() >= clamp(spawn_prob, 0.0, 0.18):
         return None
 
     shock_name = rng.choice(SHOCK_NAMES, p=np.array([0.24, 0.26, 0.26, 0.24], dtype=float))
     duration = max(3, int(rng.poisson(params.shock_duration_mean) + 2))
-    intensity = float(clamp(0.65 + (0.45 * rng.random()) + (0.18 * context.hidden_vol), 0.55, 2.4))
+    intensity = float(clamp(0.55 + (0.3 * rng.random()) + (0.12 * context.hidden_vol), 0.45, 1.8))
     side = None
     if shock_name in {"fair_jump", "one_sided_taker_surge"}:
         side = "buy" if rng.random() < 0.5 else "sell"
@@ -409,9 +411,9 @@ def score_limit_levels(
         score -= shape["curvature"] * (distance**2)
         score += shape["hump"] * math.exp(hump)
         score += shape["wall"] * math.exp(wall)
-        score += side_sign * params.imbalance_weight * imbalance_signal * math.exp(-distance / params.imbalance_decay)
-        score += side_sign * params.fair_weight * fair_signal * math.exp(-distance / params.fair_decay)
-        score += side_sign * params.flow_weight * flow_signal * math.exp(-distance / params.flow_decay)
+        score += 0.65 * side_sign * params.imbalance_weight * imbalance_signal * math.exp(-distance / params.imbalance_decay)
+        score += 0.65 * side_sign * params.fair_weight * fair_signal * math.exp(-distance / params.fair_decay)
+        score += 0.65 * side_sign * params.flow_weight * flow_signal * math.exp(-distance / params.flow_decay)
         score += params.regimes[regime].limit_offset * profile["limit_bias"]
         score -= params.stale_penalty * min(book.level_age(side, target_tick) / 10.0, 1.5)
         score -= params.gap_penalty * max(distance - 4.0, 0.0)
@@ -421,27 +423,27 @@ def score_limit_levels(
             opposite_deficit = context.best_depth_deficit_ask if side == "bid" else context.best_depth_deficit_bid
             replenish_bonus = same_deficit * math.exp(-distance / 1.2)
             pressure_penalty = 0.1 * opposite_deficit * math.exp(-distance / 1.8)
-            score += 0.65 * replenish_bonus * profile["replenish_weight"]
+            score += 0.45 * replenish_bonus * profile["replenish_weight"]
             score -= pressure_penalty
 
             if context.shock is not None:
                 if context.shock.name == "liquidity_drought" and context.shock.side == side and distance <= 1.0:
-                    score -= 1.15 * context.shock.intensity
+                    score -= 0.9 * context.shock.intensity
                 elif context.shock.name == "one_sided_taker_surge":
                     if (side == "bid" and context.shock.side == "buy") or (side == "ask" and context.shock.side == "sell"):
-                        score += 0.28 * context.shock.intensity * math.exp(-distance / 2.0)
+                        score += 0.18 * context.shock.intensity * math.exp(-distance / 2.0)
                     else:
-                        score -= 0.36 * context.shock.intensity * math.exp(-distance / 1.3)
+                        score -= 0.24 * context.shock.intensity * math.exp(-distance / 1.3)
 
             meta_order = context.meta_orders["buy" if side == "bid" else "sell"]
             if meta_order is not None:
                 progress = meta_order_progress(meta_order)
-                score += 0.35 * meta_order.urgency * (1.0 - progress) * math.exp(-distance / 1.6)
+                score += 0.18 * meta_order.urgency * (1.0 - progress) * math.exp(-distance / 1.6)
 
             if level == -1:
                 score += shape["inside_bonus"]
-                score += 0.22 * profile["inside_weight"] * max(side_sign * fair_signal, 0.0)
-                score += 0.2 * profile["inside_weight"] * same_deficit
+                score += 0.1 * profile["inside_weight"] * max(side_sign * fair_signal, 0.0)
+                score += 0.12 * profile["inside_weight"] * same_deficit
                 score += params.regimes[regime].inside_offset
         else:
             if level == -1:
@@ -464,10 +466,36 @@ def sample_participant_events(
     params: PresetParams,
 ) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
-    for participant_type in PARTICIPANT_TYPES:
+    limit_budget = _sample_event_budget("limit", regime=regime, context=context, config=config, params=params, rng=rng)
+    market_budget = _sample_event_budget("market", regime=regime, context=context, config=config, params=params, rng=rng)
+    cancel_budget = _sample_event_budget("cancel", regime=regime, context=context, config=config, params=params, rng=rng)
+
+    for side, side_count in _allocate_side_counts(
+        {
+            "bid": _aggregate_limit_side_weight(
+                "bid",
+                features=features,
+                hidden_fair_tick=hidden_fair_tick,
+                regime=regime,
+                context=context,
+                params=params,
+            ),
+            "ask": _aggregate_limit_side_weight(
+                "ask",
+                features=features,
+                hidden_fair_tick=hidden_fair_tick,
+                regime=regime,
+                context=context,
+                params=params,
+            ),
+        },
+        limit_budget,
+        rng=rng,
+    ):
         events.extend(
-            _sample_limit_events_for_participant(
-                participant_type,
+            _sample_limit_budget_events(
+                _participant_mix_specs("limit", side, context=context),
+                total_events=side_count,
                 book=book,
                 features=features,
                 hidden_fair_tick=hidden_fair_tick,
@@ -478,28 +506,64 @@ def sample_participant_events(
                 params=params,
             )
         )
-        events.extend(
-            _sample_market_events_for_participant(
-                participant_type,
+
+    for side, side_count in _allocate_side_counts(
+        {
+            "buy": _aggregate_market_side_weight(
+                "buy",
                 features=features,
                 hidden_fair_tick=hidden_fair_tick,
                 regime=regime,
                 context=context,
+                params=params,
+            ),
+            "sell": _aggregate_market_side_weight(
+                "sell",
+                features=features,
+                hidden_fair_tick=hidden_fair_tick,
+                regime=regime,
+                context=context,
+                params=params,
+            ),
+        },
+        market_budget,
+        rng=rng,
+    ):
+        events.extend(
+            _sample_market_budget_events(
+                _participant_mix_specs("market", side, context=context),
+                total_events=side_count,
+                features=features,
+                hidden_fair_tick=hidden_fair_tick,
+                context=context,
                 rng=rng,
-                config=config,
                 params=params,
             )
         )
+
+    cancel_side_weights = {
+        side: _aggregate_cancel_side_weight(
+            side,
+            book=book,
+            features=features,
+            hidden_fair_tick=hidden_fair_tick,
+            regime=regime,
+            context=context,
+            params=params,
+        )
+        for side in ("bid", "ask")
+        if book.all_levels(side)
+    }
+    for side, side_count in _allocate_side_counts(cancel_side_weights, cancel_budget, rng=rng):
         events.extend(
-            _sample_cancel_events_for_participant(
-                participant_type,
+            _sample_cancel_budget_events(
+                _participant_mix_specs("cancel", side, context=context),
+                total_events=side_count,
                 book=book,
                 features=features,
                 hidden_fair_tick=hidden_fair_tick,
-                regime=regime,
                 context=context,
                 rng=rng,
-                config=config,
                 params=params,
             )
         )
@@ -542,8 +606,6 @@ def update_excitation_state(
 
 def update_resiliency_state(
     *,
-    book: OrderBook,
-    features: MarketFeatures,
     seasonality_depth: float,
     current_spread_excess: float,
     current_bid_deficit: float,
@@ -551,14 +613,18 @@ def update_resiliency_state(
     current_imbalance_displacement: float,
     shock: ShockState | None,
     meta_orders: Mapping[AggressorSide, MetaOrderState | None],
+    spread_ticks: int,
+    depth_imbalance: float,
+    best_bid_qty: int,
+    best_ask_qty: int,
     params: PresetParams,
 ) -> tuple[float, float, float, float]:
     target_best_qty = max(1.0, math.exp(params.limit_qty_log_mean) * seasonality_depth)
-    best_bid_deficit = max(target_best_qty - features.best_bid_qty, 0.0) / target_best_qty
-    best_ask_deficit = max(target_best_qty - features.best_ask_qty, 0.0) / target_best_qty
-    spread_excess = max(features.spread_ticks - params.initial_spread_ticks, 0.0)
+    best_bid_deficit = max(target_best_qty - best_bid_qty, 0.0) / target_best_qty
+    best_ask_deficit = max(target_best_qty - best_ask_qty, 0.0) / target_best_qty
+    spread_excess = max(spread_ticks - params.initial_spread_ticks, 0.0)
     imbalance_target = _meta_signal(meta_orders)
-    imbalance_displacement = abs(features.depth_imbalance - imbalance_target)
+    imbalance_displacement = abs(depth_imbalance - imbalance_target)
 
     decay = math.exp(-1.0 / max(params.resiliency_half_life, 1.0))
     if shock is not None and shock.name == "liquidity_drought":
@@ -576,6 +642,424 @@ def update_resiliency_state(
         float(next_ask_deficit),
         float(next_imbalance_displacement),
     )
+
+
+def _sample_event_budget(
+    event_type: Literal["limit", "market", "cancel"],
+    *,
+    regime: RegimeName,
+    context: EngineContext,
+    config: MarketConfig,
+    params: PresetParams,
+    rng: np.random.Generator,
+) -> int:
+    if event_type == "limit":
+        base = params.target_limit_events
+        multiplier = context.seasonality["limit"] * {"calm": 0.95, "directional": 1.05, "stressed": 0.9}[regime]
+        multiplier *= 1.0 + (0.08 * (context.excitation["limit_bid_near"] + context.excitation["limit_ask_near"]))
+        multiplier *= 1.0 + (0.12 * (context.best_depth_deficit_bid + context.best_depth_deficit_ask))
+        if context.shock is not None and context.shock.name == "liquidity_drought":
+            multiplier *= max(0.65, 1.0 - (0.18 * context.shock.intensity))
+        scale = config.limit_rate_scale
+        hard_cap = int((params.target_limit_events * 3.0) + 8.0)
+    elif event_type == "market":
+        base = params.target_market_events
+        multiplier = context.seasonality["market"] * {"calm": 0.9, "directional": 1.15, "stressed": 1.25}[regime]
+        multiplier *= 1.0 + (0.12 * (context.excitation["market_buy"] + context.excitation["market_sell"]))
+        multiplier *= 1.0 + (0.08 * abs(_meta_signal(context.meta_orders)))
+        if context.shock is not None:
+            if context.shock.name == "one_sided_taker_surge":
+                multiplier *= 1.0 + (0.35 * context.shock.intensity)
+            elif context.shock.name == "vol_burst":
+                multiplier *= 1.0 + (0.1 * context.shock.intensity)
+        scale = config.market_rate_scale
+        hard_cap = int((params.target_market_events * 4.0) + 6.0)
+    else:
+        base = params.target_cancel_events
+        multiplier = context.seasonality["cancel"] * {"calm": 0.95, "directional": 1.05, "stressed": 1.18}[regime]
+        multiplier *= 1.0 + (0.1 * (context.excitation["cancel_bid_near"] + context.excitation["cancel_ask_near"]))
+        multiplier *= 1.0 + (0.14 * context.hidden_vol)
+        if context.shock is not None:
+            if context.shock.name == "liquidity_drought":
+                multiplier *= 1.0 + (0.28 * context.shock.intensity)
+            elif context.shock.name == "vol_burst":
+                multiplier *= 1.0 + (0.12 * context.shock.intensity)
+        scale = config.cancel_rate_scale
+        hard_cap = int((params.target_cancel_events * 2.5) + 10.0)
+
+    lam = max(0.0, base * multiplier * scale)
+    return int(min(hard_cap, rng.poisson(lam)))
+
+
+def _allocate_side_counts(
+    side_weights: Mapping[str, float],
+    total_events: int,
+    *,
+    rng: np.random.Generator,
+) -> list[tuple[str, int]]:
+    if total_events <= 0 or not side_weights:
+        return []
+
+    sides = [side for side, weight in side_weights.items() if weight > 0.0]
+    if not sides:
+        return []
+
+    weights = np.array([side_weights[side] for side in sides], dtype=float)
+    allocations = rng.multinomial(total_events, weights / weights.sum())
+    return [(side, int(count)) for side, count in zip(sides, allocations) if count > 0]
+
+
+def _participant_mix_specs(
+    event_type: Literal["limit", "market", "cancel"],
+    side: str,
+    *,
+    context: EngineContext,
+ ) -> list[tuple[ParticipantType, str, float]]:
+    if event_type == "limit":
+        weights: dict[ParticipantType, float] = {
+            "passive_lp": 0.48,
+            "inventory_mm": 0.35,
+            "noise_taker": 0.1,
+            "informed_meta": 0.07,
+        }
+        same_meta = context.meta_orders["buy" if side == "bid" else "sell"]
+        if same_meta is not None:
+            weights["informed_meta"] += 0.08 * same_meta.urgency
+            weights["passive_lp"] += 0.03
+            weights["noise_taker"] = max(0.05, weights["noise_taker"] - 0.03)
+        if context.shock is not None and context.shock.name == "liquidity_drought" and context.shock.side == side:
+            weights["inventory_mm"] += 0.1
+            weights["passive_lp"] += 0.04
+            weights["noise_taker"] = max(0.03, weights["noise_taker"] - 0.05)
+    elif event_type == "market":
+        weights = {
+            "passive_lp": 0.03,
+            "inventory_mm": 0.12,
+            "noise_taker": 0.65,
+            "informed_meta": 0.2,
+        }
+        same_meta = context.meta_orders[side]
+        if same_meta is not None:
+            weights["informed_meta"] += 0.1 * same_meta.urgency
+            weights["noise_taker"] = max(0.28, weights["noise_taker"] - 0.06)
+        if context.shock is not None and context.shock.name == "one_sided_taker_surge" and context.shock.side == side:
+            weights["noise_taker"] += 0.12
+        if context.shock is not None and context.shock.name == "vol_burst":
+            weights["noise_taker"] += 0.04
+            weights["inventory_mm"] += 0.03
+    else:
+        weights = {
+            "passive_lp": 0.32,
+            "inventory_mm": 0.4,
+            "noise_taker": 0.15,
+            "informed_meta": 0.13,
+        }
+        opposite_meta = context.meta_orders["buy" if side == "ask" else "sell"]
+        if opposite_meta is not None:
+            weights["informed_meta"] += 0.08 * opposite_meta.urgency
+        if context.shock is not None and context.shock.name == "liquidity_drought" and context.shock.side == side:
+            weights["inventory_mm"] += 0.1
+            weights["passive_lp"] += 0.04
+            weights["noise_taker"] = max(0.05, weights["noise_taker"] - 0.04)
+
+    return [(participant_type, side, max(weight, 1e-6)) for participant_type, weight in weights.items()]
+
+
+def _aggregate_limit_side_weight(
+    side: ModelSide,
+    *,
+    features: MarketFeatures,
+    hidden_fair_tick: float,
+    regime: RegimeName,
+    context: EngineContext,
+    params: PresetParams,
+) -> float:
+    fair_signal = _bounded_signal(hidden_fair_tick - features.mid_tick, scale=2.8)
+    flow_signal = _bounded_signal(features.recent_flow_imbalance, scale=0.9)
+    imbalance_signal = _bounded_signal(features.depth_imbalance, scale=0.8)
+    side_sign = 1.0 if side == "bid" else -1.0
+    same_deficit = context.best_depth_deficit_bid if side == "bid" else context.best_depth_deficit_ask
+    opposite_deficit = context.best_depth_deficit_ask if side == "bid" else context.best_depth_deficit_bid
+    thinness = features.thin_bid_best if side == "bid" else features.thin_ask_best
+    opposite_thinness = features.thin_ask_best if side == "bid" else features.thin_bid_best
+    same_trace = context.excitation["limit_bid_near"] if side == "bid" else context.excitation["limit_ask_near"]
+    opposite_trace = context.excitation["limit_ask_near"] if side == "bid" else context.excitation["limit_bid_near"]
+    signed_pressure = (
+        (0.08 * fair_signal)
+        + (0.05 * flow_signal)
+        + (0.03 * imbalance_signal)
+        + (0.06 * (same_deficit - opposite_deficit))
+        + (0.03 * ((opposite_thinness - thinness)))
+        + (0.025 * (same_trace - opposite_trace))
+    )
+
+    log_weight = params.limit_base_log_intensity + params.regimes[regime].limit_offset
+    log_weight += math.log(max(context.seasonality["limit"], 1e-6))
+    log_weight += 0.12 * same_deficit
+    log_weight += 0.05 * thinness
+    log_weight += side_sign * signed_pressure
+    log_weight -= 0.04 * context.spread_excess
+    if context.shock is not None and context.shock.name == "liquidity_drought" and context.shock.side == side:
+        log_weight -= 0.22 * context.shock.intensity
+    meta_order = context.meta_orders["buy" if side == "bid" else "sell"]
+    if meta_order is not None:
+        log_weight += 0.08 * meta_order.urgency * (1.0 - meta_order_progress(meta_order))
+    return max(0.0, clipped_exp(log_weight, low=-3.2, high=2.4))
+
+
+def _aggregate_market_side_weight(
+    side: AggressorSide,
+    *,
+    features: MarketFeatures,
+    hidden_fair_tick: float,
+    regime: RegimeName,
+    context: EngineContext,
+    params: PresetParams,
+) -> float:
+    fair_signal = _bounded_signal(hidden_fair_tick - features.mid_tick, scale=2.8)
+    flow_signal = _bounded_signal(features.recent_flow_imbalance, scale=0.9)
+    imbalance_signal = _bounded_signal(features.depth_imbalance, scale=0.85)
+    sign = 1.0 if side == "buy" else -1.0
+    thin_signal = _bounded_signal(features.thin_ask_best - features.thin_bid_best, scale=0.65)
+    same_trace = context.excitation["market_buy"] if side == "buy" else context.excitation["market_sell"]
+    opposite_trace = context.excitation["market_sell"] if side == "buy" else context.excitation["market_buy"]
+    trace_signal = _bounded_signal(same_trace - opposite_trace, scale=1.6)
+    signed_pressure = (
+        (0.12 * fair_signal)
+        + (0.09 * flow_signal)
+        + (0.05 * imbalance_signal)
+        + (0.06 * thin_signal)
+        + (0.045 * trace_signal)
+    )
+
+    log_weight = params.market_base_log_intensity + params.regimes[regime].market_offset
+    log_weight += math.log(max(context.seasonality["market"], 1e-6))
+    log_weight += sign * signed_pressure
+    log_weight += 0.08 * context.hidden_vol
+    log_weight -= 0.14 * max(features.spread_ticks - 1, 0)
+
+    meta_order = context.meta_orders[side]
+    if meta_order is not None:
+        log_weight += 0.12 * meta_order.urgency * (1.0 - meta_order_progress(meta_order))
+    if context.shock is not None:
+        if context.shock.name == "one_sided_taker_surge" and context.shock.side == side:
+            log_weight += 0.22 * context.shock.intensity
+        elif context.shock.name == "vol_burst":
+            log_weight += 0.05 * context.shock.intensity
+    return max(0.0, clipped_exp(log_weight, low=-3.6, high=2.0))
+
+
+def _aggregate_cancel_side_weight(
+    side: ModelSide,
+    *,
+    book: OrderBook,
+    features: MarketFeatures,
+    hidden_fair_tick: float,
+    regime: RegimeName,
+    context: EngineContext,
+    params: PresetParams,
+) -> float:
+    fair_signal = _bounded_signal(hidden_fair_tick - features.mid_tick, scale=2.8)
+    flow_signal = _bounded_signal(features.recent_flow_imbalance, scale=0.9)
+    imbalance_signal = _bounded_signal(features.depth_imbalance, scale=0.85)
+    sign = 1.0 if side == "ask" else -1.0
+    signed_pressure = (
+        (0.08 * fair_signal)
+        + (0.06 * flow_signal)
+        + (0.03 * imbalance_signal)
+    )
+
+    log_weight = math.log(max(context.seasonality["cancel"], 1e-6))
+    log_weight += params.regimes[regime].cancel_offset
+    log_weight += 0.12 * math.log1p(len(book.all_levels(side)))
+    log_weight += 0.18 * context.hidden_vol
+    log_weight += sign * signed_pressure
+    log_weight += 0.05 * (context.excitation["cancel_ask_near"] if side == "ask" else context.excitation["cancel_bid_near"])
+
+    if context.shock is not None:
+        if context.shock.name == "liquidity_drought" and context.shock.side == side:
+            log_weight += 0.24 * context.shock.intensity
+        elif context.shock.name == "vol_burst":
+            log_weight += 0.05 * context.shock.intensity
+    return max(0.0, clipped_exp(log_weight, low=-3.2, high=2.2))
+
+
+def _allocate_budget_counts(
+    specs: Sequence[tuple[Any, Any, float]],
+    total_events: int,
+    *,
+    rng: np.random.Generator,
+) -> list[tuple[Any, Any, int]]:
+    if total_events <= 0:
+        return []
+
+    positive_specs = [(left, right, weight) for left, right, weight in specs if weight > 0.0]
+    if not positive_specs:
+        return []
+
+    weights = np.array([weight for _, _, weight in positive_specs], dtype=float)
+    allocations = rng.multinomial(total_events, weights / weights.sum())
+    return [
+        (left, right, int(count))
+        for (left, right, _), count in zip(positive_specs, allocations)
+        if count > 0
+    ]
+
+
+def _sample_limit_budget_events(
+    specs: Sequence[tuple[ParticipantType, ModelSide, float]],
+    *,
+    total_events: int,
+    book: OrderBook,
+    features: MarketFeatures,
+    hidden_fair_tick: float,
+    regime: RegimeName,
+    context: EngineContext,
+    rng: np.random.Generator,
+    config: MarketConfig,
+    params: PresetParams,
+) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    for participant_type, side, count in _allocate_budget_counts(specs, total_events, rng=rng):
+        levels, probabilities = score_limit_levels(
+            side,
+            participant_type,
+            book=book,
+            features=features,
+            hidden_fair_tick=hidden_fair_tick,
+            regime=regime,
+            context=context,
+            config=config,
+            params=params,
+        )
+        chosen_levels = rng.choice(levels, size=count, replace=True, p=probabilities)
+        meta_order = context.meta_orders["buy" if side == "bid" else "sell"]
+        source = "meta_order" if participant_type == "informed_meta" and meta_order is not None else "organic"
+        if context.shock is not None and context.shock.name == "liquidity_drought" and context.shock.side == side:
+            source = "shock"
+
+        for level in chosen_levels:
+            events.append(
+                {
+                    "type": "limit",
+                    "side": side,
+                    "level": int(level),
+                    "qty": _sample_limit_qty(
+                        participant_type,
+                        side,
+                        context=context,
+                        rng=rng,
+                        params=params,
+                    ),
+                    "source": source,
+                    "participant_type": participant_type,
+                    "meta_order_id": meta_order.id if meta_order is not None else None,
+                    "meta_order_side": meta_order.side if meta_order is not None else None,
+                }
+            )
+    return events
+
+
+def _sample_market_budget_events(
+    specs: Sequence[tuple[ParticipantType, AggressorSide, float]],
+    *,
+    total_events: int,
+    features: MarketFeatures,
+    hidden_fair_tick: float,
+    context: EngineContext,
+    rng: np.random.Generator,
+    params: PresetParams,
+) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    for participant_type, side, count in _allocate_budget_counts(specs, total_events, rng=rng):
+        meta_order = context.meta_orders.get(side)
+        source = "meta_order" if participant_type == "informed_meta" and meta_order is not None else "organic"
+        if context.shock is not None and context.shock.name == "one_sided_taker_surge" and context.shock.side == side:
+            source = "shock"
+
+        for _ in range(count):
+            events.append(
+                {
+                    "type": "market",
+                    "side": side,
+                    "qty": _sample_market_qty(
+                        side,
+                        participant_type,
+                        features=features,
+                        hidden_fair_tick=hidden_fair_tick,
+                        context=context,
+                        rng=rng,
+                        params=params,
+                    ),
+                    "source": source,
+                    "participant_type": participant_type,
+                    "meta_order_id": meta_order.id if meta_order is not None else None,
+                    "meta_order_side": meta_order.side if meta_order is not None else None,
+                }
+            )
+    return events
+
+
+def _sample_cancel_budget_events(
+    specs: Sequence[tuple[ParticipantType, ModelSide, float]],
+    *,
+    total_events: int,
+    book: OrderBook,
+    features: MarketFeatures,
+    hidden_fair_tick: float,
+    context: EngineContext,
+    rng: np.random.Generator,
+    params: PresetParams,
+) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    for participant_type, side, count in _allocate_budget_counts(specs, total_events, rng=rng):
+        levels = book.all_levels(side)
+        if not levels:
+            continue
+
+        weights = np.array(
+            [
+                _cancel_level_weight(
+                    side,
+                    depth_index=depth_index,
+                    tick=tick,
+                    qty=qty,
+                    features=features,
+                    hidden_fair_tick=hidden_fair_tick,
+                    context=context,
+                    book=book,
+                    participant_type=participant_type,
+                    params=params,
+                )
+                for depth_index, (tick, qty) in enumerate(levels)
+            ],
+            dtype=float,
+        )
+        chosen_indices = rng.choice(np.arange(len(levels)), size=count, replace=True, p=weights / weights.sum())
+        opposite_meta = context.meta_orders["buy" if side == "ask" else "sell"]
+        source = "meta_order" if participant_type == "informed_meta" and opposite_meta is not None else "organic"
+        if context.shock is not None and context.shock.name == "liquidity_drought" and context.shock.side == side:
+            source = "shock"
+
+        for chosen_index in chosen_indices:
+            tick, qty = levels[int(chosen_index)]
+            chunk = min(qty, _sample_cancel_qty(qty, participant_type=participant_type, rng=rng, params=params))
+            if chunk <= 0:
+                continue
+            events.append(
+                {
+                    "type": "cancel",
+                    "side": side,
+                    "level": int(chosen_index),
+                    "tick": tick,
+                    "qty": chunk,
+                    "source": source,
+                    "participant_type": participant_type,
+                    "meta_order_id": opposite_meta.id if opposite_meta is not None else None,
+                    "meta_order_side": opposite_meta.side if opposite_meta is not None else None,
+                }
+            )
+    return events
 
 
 def _sample_limit_events_for_participant(
@@ -820,9 +1304,9 @@ def _limit_intensity(
     log_lambda += 0.14 * thinness
     log_lambda += 0.12 * same_limit_trace * config.excitation_scale
     log_lambda += 0.08 * market_trace * config.excitation_scale
-    log_lambda += 0.1 * side_sign * fair_signal * profile["directional_weight"]
-    log_lambda += 0.08 * side_sign * flow_signal * profile["directional_weight"]
-    log_lambda += 0.06 * side_sign * imbalance_signal * profile["directional_weight"]
+    log_lambda += 0.06 * side_sign * fair_signal * profile["directional_weight"]
+    log_lambda += 0.04 * side_sign * flow_signal * profile["directional_weight"]
+    log_lambda += 0.03 * side_sign * imbalance_signal * profile["directional_weight"]
     log_lambda -= 0.06 * context.hidden_vol
     log_lambda -= 0.1 * context.spread_excess
 
@@ -913,7 +1397,7 @@ def _cancel_intensity(
     adverse = (
         max(sign * fair_signal, 0.0)
         + 0.45 * max(sign * flow_signal, 0.0)
-        + 0.35 * max(sign * imbalance_signal, 0.0)
+        + 0.2 * max(sign * imbalance_signal, 0.0)
     )
     cancel_trace = context.excitation["cancel_ask_near"] if side == "ask" else context.excitation["cancel_bid_near"]
     opposite_market_trace = context.excitation["market_buy"] if side == "ask" else context.excitation["market_sell"]
@@ -969,16 +1453,16 @@ def _dynamic_shape_profile(
     if context is not None:
         spread_excess = context.spread_excess
         same_deficit = context.best_depth_deficit_bid if side == "bid" else context.best_depth_deficit_ask
-        intercept += 0.32 * same_deficit
+        intercept += 0.22 * same_deficit
         slope += 0.08 * spread_excess
         wall += 0.35 * spread_excess
-        inside_bonus += 0.18 * same_deficit
+        inside_bonus += 0.12 * same_deficit
 
         meta_order = context.meta_orders["buy" if side == "bid" else "sell"]
         if meta_order is not None:
-            intercept += 0.18 * meta_order.urgency
-            wall += 0.12 * meta_order.urgency
-            inside_bonus += 0.15 * meta_order.urgency
+            intercept += 0.1 * meta_order.urgency
+            wall += 0.06 * meta_order.urgency
+            inside_bonus += 0.05 * meta_order.urgency
 
         if context.shock is not None:
             if context.shock.name == "liquidity_drought" and context.shock.side == side:
@@ -988,17 +1472,17 @@ def _dynamic_shape_profile(
                 inside_bonus -= 0.45 * context.shock.intensity
             elif context.shock.name == "one_sided_taker_surge":
                 if (side == "bid" and context.shock.side == "buy") or (side == "ask" and context.shock.side == "sell"):
-                    intercept += 0.2 * context.shock.intensity
-                    wall += 0.15 * context.shock.intensity
+                    intercept += 0.12 * context.shock.intensity
+                    wall += 0.1 * context.shock.intensity
                 else:
-                    intercept -= 0.28 * context.shock.intensity
-                    inside_bonus -= 0.16 * context.shock.intensity
+                    intercept -= 0.18 * context.shock.intensity
+                    inside_bonus -= 0.1 * context.shock.intensity
 
         phase_adjustment = {"open": 0.12, "mid": -0.04, "close": 0.08}[context.session_phase]
         slope += phase_adjustment
         curvature += 0.02 * context.hidden_vol
-        intercept += 0.12 * side_sign * fair_signal * profile["directional_weight"]
-        intercept += 0.08 * side_sign * flow_signal * profile["directional_weight"]
+        intercept += 0.02 * side_sign * fair_signal * profile["directional_weight"]
+        intercept += 0.015 * side_sign * flow_signal * profile["directional_weight"]
 
     intercept += params.regimes[regime].limit_offset * 0.12
     return {
