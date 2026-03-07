@@ -88,19 +88,20 @@ figure.savefig("orderwave-history-only.png")
 python examples/plot_market_heatmap.py --steps 2000 --preset trend --output artifacts/orderwave_heatmap.png
 ```
 
-## 벤치마크
+## 성능 측정
 
-엔진 변경 후 처리량과 event density를 함께 확인하려면 benchmark 스크립트를 사용하면 됩니다.
+엔진 변경 후 처리량, floor check, `full` vs `history_only` 비교를 한 번에 확인하려면 성능 측정 스크립트를 사용하면 됩니다.
 
 ```bash
-python benchmarks/benchmark.py --steps 5000 --preset balanced
+python scripts/measure_performance.py --preset balanced --seeds 20 --steps 20000 --outdir artifacts/performance
 ```
 
-스크립트는 다음 값을 출력합니다.
+생성 산출물:
 
-- `steps_per_second`
-- `events_per_step`
-- `market_flow=buy=... sell=... buy_share=...`
+- `performance_metrics.csv`
+- `performance_summary.csv`
+- `performance_logging_modes.csv`
+- `performance_summary.md`
 
 ## 검증 스윕
 

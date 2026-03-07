@@ -66,19 +66,20 @@ summary = fast_market.get_history()
 figure = fast_market.plot()
 ```
 
-## Benchmark
+## Performance Measurement
 
-The repository benchmark reports both throughput and micro-batch realism metrics.
+Use the single performance runner when you want a quick throughput check plus a `full` vs `history_only` logging comparison.
 
 ```bash
-python benchmarks/benchmark.py --steps 5000 --preset balanced
+python scripts/measure_performance.py --preset balanced --seeds 20 --steps 20000 --outdir artifacts/performance
 ```
 
-Expected output includes:
+The runner writes:
 
-- `steps_per_second`
-- `events_per_step`
-- `market_flow=buy=... sell=... buy_share=...`
+- `performance_metrics.csv`
+- `performance_summary.csv`
+- `performance_logging_modes.csv`
+- `performance_summary.md`
 
 ## Validation Sweep
 

@@ -66,19 +66,20 @@ summary = fast_market.get_history()
 figure = fast_market.plot()
 ```
 
-## 벤치마크
+## 성능 측정
 
-저장소의 benchmark 스크립트는 처리량과 micro-batch 질감을 같이 출력합니다.
+빠른 처리량 점검과 `full` vs `history_only` logging 비교는 성능 측정 스크립트 하나로 확인할 수 있습니다.
 
 ```bash
-python benchmarks/benchmark.py --steps 5000 --preset balanced
+python scripts/measure_performance.py --preset balanced --seeds 20 --steps 20000 --outdir artifacts/performance
 ```
 
-출력에는 다음 값이 포함됩니다.
+생성 산출물:
 
-- `steps_per_second`
-- `events_per_step`
-- `market_flow=buy=... sell=... buy_share=...`
+- `performance_metrics.csv`
+- `performance_summary.csv`
+- `performance_logging_modes.csv`
+- `performance_summary.md`
 
 ## 검증 스윕
 

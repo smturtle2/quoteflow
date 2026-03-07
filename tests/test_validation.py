@@ -9,6 +9,7 @@ from orderwave.validation import (
     collect_invariant_failures,
     compute_run_metrics,
     evaluate_validation_results,
+    measure_performance,
     run_market_validation,
     run_reproducibility_checks,
     run_validation_pipeline,
@@ -202,6 +203,16 @@ def test_benchmark_logging_modes_shows_history_only_reduction() -> None:
     assert bool(frame.loc[frame["logging_mode"] == "full", "run_failed"].iloc[0]) is False
     assert bool(frame.loc[frame["logging_mode"] == "history_only", "run_failed"].iloc[0]) is False
     assert frame.loc[frame["logging_mode"] == "history_only", "logged_rows"].iloc[0] == 0
+
+
+def test_measure_performance_returns_summary_and_seed_metrics() -> None:
+    result = measure_performance(preset="balanced", seeds=(1, 2), steps=80)
+
+    assert set(result) == {"seed_metrics", "summary", "logging_compare"}
+    assert len(result["seed_metrics"]) == 2
+    assert len(result["summary"]) == 1
+    assert set(result["logging_compare"]["logging_mode"]) == {"full", "history_only"}
+    assert bool(result["summary"]["floor_pass"].iloc[0]) is True
 
 
 def test_run_validation_pipeline_writes_final_artifacts(tmp_path: Path) -> None:

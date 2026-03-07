@@ -605,8 +605,93 @@ def benchmark_logging_modes(
         )
         frame.loc[frame["logging_mode"] == "history_only", "throughput_improvement_pct_vs_full"] = (
             100.0 * (float(history_only_row["steps_per_second"]) - float(full_row["steps_per_second"])) / max(float(full_row["steps_per_second"]), EPSILON)
-        )
+    )
     return frame
+
+
+def measure_performance(
+    *,
+    preset: str = "balanced",
+    seeds: Sequence[int] = (1,),
+    steps: int = 20_000,
+    warmup_fraction: float = 0.10,
+    throughput_floor: float | None = None,
+    logging_compare_seed: int | None = None,
+) -> dict[str, pd.DataFrame]:
+    """Run the canonical performance sweep for one preset.
+
+    Returns a dictionary with:
+
+    - ``seed_metrics``: per-seed throughput and memory metrics
+    - ``summary``: one-row aggregate summary including floor status
+    - ``logging_compare``: full vs history-only comparison for one seed
+    """
+
+    seed_list = [int(seed) for seed in seeds]
+    if not seed_list:
+        raise ValueError("seeds must not be empty")
+
+    rows: list[dict[str, Any]] = []
+    for seed in seed_list:
+        run = run_market_validation(
+            preset=preset,
+            seed=seed,
+            steps=steps,
+            warmup_fraction=warmup_fraction,
+        )
+        metrics = compute_run_metrics(
+            run,
+            stage="performance",
+            preset=preset,
+            seed=seed,
+            config_label="performance",
+        )
+        rows.append(
+            {
+                "preset": preset,
+                "seed": int(seed),
+                "steps": int(steps),
+                "steps_per_second": float(metrics["steps_per_second"]),
+                "events_per_step": float(metrics["events_per_step"]),
+                "peak_memory_mb": float(metrics["peak_memory_mb"]),
+                "bytes_per_logged_event": float(metrics["bytes_per_logged_event"]),
+                "run_failed": bool(metrics["run_failed"]),
+            }
+        )
+
+    seed_metrics = pd.DataFrame(rows).sort_values("seed").reset_index(drop=True)
+    floor = float(throughput_floor) if throughput_floor is not None else float(BASELINE_THROUGHPUT_FLOOR.get(preset, 0.0))
+    failed_runs = int(seed_metrics["run_failed"].sum())
+    summary = pd.DataFrame(
+        [
+            {
+                "preset": preset,
+                "steps": int(steps),
+                "seeds": int(len(seed_list)),
+                "throughput_floor": float(floor),
+                "mean_steps_per_second": float(seed_metrics["steps_per_second"].mean()),
+                "min_steps_per_second": float(seed_metrics["steps_per_second"].min()),
+                "max_steps_per_second": float(seed_metrics["steps_per_second"].max()),
+                "mean_events_per_step": float(seed_metrics["events_per_step"].mean()),
+                "mean_peak_memory_mb": float(seed_metrics["peak_memory_mb"].mean()),
+                "mean_bytes_per_logged_event": float(seed_metrics["bytes_per_logged_event"].mean()),
+                "failed_runs": failed_runs,
+                "floor_pass": bool(failed_runs == 0 and float(seed_metrics["steps_per_second"].mean()) >= floor),
+            }
+        ]
+    )
+    compare_seed = int(logging_compare_seed) if logging_compare_seed is not None else seed_list[0]
+    logging_compare = benchmark_logging_modes(
+        preset=preset,
+        seed=compare_seed,
+        steps=steps,
+        warmup_fraction=warmup_fraction,
+    )
+    return {
+        "seed_metrics": seed_metrics,
+        "summary": summary,
+        "logging_compare": logging_compare,
+    }
 
 
 def summarize_sensitivity_grid(sensitivity_metrics: pd.DataFrame) -> pd.DataFrame:

@@ -25,6 +25,8 @@ class OrderBook:
         self.ask_staleness: dict[int, int] = {}
         self.best_bid_tick: int | None = None
         self.best_ask_tick: int | None = None
+        self._bid_levels_cache: tuple[tuple[int, int], ...] | None = None
+        self._ask_levels_cache: tuple[tuple[int, int], ...] | None = None
 
     @property
     def spread_ticks(self) -> int:
@@ -37,10 +39,12 @@ class OrderBook:
         if qty <= 0:
             book.pop(tick, None)
             staleness.pop(tick, None)
+            self._invalidate_levels_cache(side)
             self._refresh_best(side)
             return
         book[tick] = int(qty)
         staleness[tick] = 0
+        self._invalidate_levels_cache(side)
         self._refresh_best(side)
 
     def add_limit(self, side: BookSide, tick: int, qty: int) -> None:
@@ -49,6 +53,7 @@ class OrderBook:
         book, staleness = self._book_and_age(side)
         book[tick] = int(book.get(tick, 0) + qty)
         staleness[tick] = 0
+        self._invalidate_levels_cache(side)
         self._refresh_best(side)
 
     def apply_limit_relative(self, side: BookSide, level: int, qty: int) -> int | None:
@@ -98,6 +103,7 @@ class OrderBook:
         else:
             book.pop(tick, None)
             staleness.pop(tick, None)
+        self._invalidate_levels_cache(side)
         self._refresh_best(side)
         return canceled
 
@@ -137,7 +143,8 @@ class OrderBook:
             else:
                 book.pop(best_tick, None)
                 staleness.pop(best_tick, None)
-                self._refresh_best(side)
+            self._invalidate_levels_cache(side)
+            self._refresh_best(side)
 
         return result
 
@@ -146,13 +153,19 @@ class OrderBook:
             for tick in list(staleness):
                 staleness[tick] += 1
 
-    def top_levels(self, side: BookSide, depth: int) -> list[tuple[int, int]]:
+    def top_levels(self, side: BookSide, depth: int) -> tuple[tuple[int, int], ...]:
         return self.all_levels(side)[: max(0, depth)]
 
-    def all_levels(self, side: BookSide) -> list[tuple[int, int]]:
-        book, _ = self._book_and_age(side)
-        ticks = sorted(book, reverse=(side == "bid"))
-        return [(tick, int(book[tick])) for tick in ticks]
+    def all_levels(self, side: BookSide) -> tuple[tuple[int, int], ...]:
+        cached = self._bid_levels_cache if side == "bid" else self._ask_levels_cache
+        if cached is None:
+            book, _ = self._book_and_age(side)
+            cached = tuple((tick, int(book[tick])) for tick in sorted(book, reverse=(side == "bid")))
+            if side == "bid":
+                self._bid_levels_cache = cached
+            else:
+                self._ask_levels_cache = cached
+        return cached
 
     def best_qty(self, side: BookSide) -> int:
         if side == "bid":
@@ -169,13 +182,13 @@ class OrderBook:
     def top_depth_state(self, depth: int) -> tuple[int, int, int, int]:
         if depth <= 0:
             return self.best_qty("bid"), self.best_qty("ask"), 0, 0
-        bid_total = 0
-        ask_total = 0
-        for tick in sorted(self.bid_book, reverse=True)[:depth]:
-            bid_total += int(self.bid_book[tick])
-        for tick in sorted(self.ask_book)[:depth]:
-            ask_total += int(self.ask_book[tick])
-        return self.best_qty("bid"), self.best_qty("ask"), bid_total, ask_total
+        bid_levels = self.top_levels("bid", depth)
+        ask_levels = self.top_levels("ask", depth)
+        bid_total = sum(qty for _, qty in bid_levels)
+        ask_total = sum(qty for _, qty in ask_levels)
+        best_bid_qty = bid_levels[0][1] if bid_levels else 0
+        best_ask_qty = ask_levels[0][1] if ask_levels else 0
+        return int(best_bid_qty), int(best_ask_qty), int(bid_total), int(ask_total)
 
     def level_age(self, side: BookSide, tick: int) -> int:
         _, staleness = self._book_and_age(side)
@@ -191,3 +204,9 @@ class OrderBook:
             self.best_bid_tick = max(self.bid_book) if self.bid_book else None
             return
         self.best_ask_tick = min(self.ask_book) if self.ask_book else None
+
+    def _invalidate_levels_cache(self, side: BookSide) -> None:
+        if side == "bid":
+            self._bid_levels_cache = None
+        else:
+            self._ask_levels_cache = None

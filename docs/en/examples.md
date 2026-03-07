@@ -88,19 +88,20 @@ The repository includes [`examples/plot_market_heatmap.py`](https://github.com/s
 python examples/plot_market_heatmap.py --steps 2000 --preset trend --output artifacts/orderwave_heatmap.png
 ```
 
-## Benchmark
+## Performance Measurement
 
-Use the benchmark script when you want to validate both throughput and event density after engine changes.
+Use the single performance script when you want a quick throughput check, a floor check, and a `full` vs `history_only` comparison after engine changes.
 
 ```bash
-python benchmarks/benchmark.py --steps 5000 --preset balanced
+python scripts/measure_performance.py --preset balanced --seeds 20 --steps 20000 --outdir artifacts/performance
 ```
 
-The script reports:
+The script writes:
 
-- `steps_per_second`
-- `events_per_step`
-- `market_flow=buy=... sell=... buy_share=...`
+- `performance_metrics.csv`
+- `performance_summary.csv`
+- `performance_logging_modes.csv`
+- `performance_summary.md`
 
 ## Validation Sweep
 
