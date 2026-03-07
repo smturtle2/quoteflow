@@ -18,6 +18,7 @@ from orderwave.model import (
     EngineContext,
     MetaOrderState,
     ShockState,
+    advance_directional_anchor,
     advance_hidden_fair_state,
     advance_hidden_volatility,
     advance_meta_orders,
@@ -90,7 +91,6 @@ class Market:
         self._history = HistoryBuffer()
         self._visual_history: list[VisualHistoryRow] = []
         self._step = 0
-        self._debug_last_step_events: list[dict[str, object]] = []
 
         init_tick = price_to_tick(init_price, self.tick_size)
         self._init_price = tick_to_price(init_tick, self.tick_size)
@@ -100,6 +100,11 @@ class Market:
         self._session_step = 0
         self._session_phase = "open"
         self._session_progress = 0.0
+        self._seasonality = seasonality_multipliers(
+            self._session_phase,
+            session_progress=self._session_progress,
+            scale=self.config.seasonality_scale,
+        )
 
         self._hidden_fair_base_tick = float(init_tick) + (self._params.initial_spread_ticks / 2.0)
         self._hidden_fair_slow = 0.0
@@ -118,6 +123,7 @@ class Market:
         self._best_depth_deficit_bid = 0.0
         self._best_depth_deficit_ask = 0.0
         self._imbalance_displacement = 0.0
+        self._directional_anchor = 0.0
 
         self._last_trade_price = self._init_price
         self._last_trade_side: str | None = None
@@ -133,9 +139,7 @@ class Market:
         self._seed_initial_book(init_tick)
         self._record_current_state()
 
-    def step(self) -> dict[str, object]:
-        """Advance the simulator by one micro-batch."""
-
+    def _step_impl(self) -> None:
         previous_features = self._compute_features()
         previous_mid_price = previous_features.mid_price
 
@@ -155,11 +159,19 @@ class Market:
         self._burst_state = derive_burst_state(self._excitation)
 
         latent_context = self._current_context()
+        self._directional_anchor = advance_directional_anchor(
+            self._directional_anchor,
+            features=previous_features,
+            regime=self._regime,
+            context=latent_context,
+            rng=self._rng,
+            params=self._params,
+        )
         self._hidden_vol = advance_hidden_volatility(
             self._hidden_vol,
             features=previous_features,
             regime=self._regime,
-            context=latent_context,
+            context=self._current_context(),
             rng=self._rng,
             config=self.config,
             params=self._params,
@@ -173,6 +185,7 @@ class Market:
             regime=self._regime,
             context=self._current_context(),
             rng=self._rng,
+            config=self.config,
             params=self._params,
         )
         self._hidden_fair_tick = self._hidden_fair_base_tick + self._hidden_fair_slow + self._hidden_fair_fast + self._hidden_fair_jump
@@ -213,14 +226,12 @@ class Market:
 
         step_buy_volume = 0.0
         step_sell_volume = 0.0
-        applied_events: list[dict[str, object]] = []
         event_idx = 0
 
         for event in sampled_events:
             applied = self._apply_event(event, event_idx=event_idx)
             if applied is None:
                 continue
-            applied_events.append(applied["event_row"])
             if applied["side"] == "buy":
                 step_buy_volume += applied["fill_qty"]
             elif applied["side"] == "sell":
@@ -236,8 +247,12 @@ class Market:
         self._mid_returns.append(current_features.mid_price - previous_mid_price)
 
         self._step += 1
-        self._debug_last_step_events = applied_events
         self._record_current_state()
+
+    def step(self) -> dict[str, object]:
+        """Advance the simulator by one micro-batch."""
+
+        self._step_impl()
         return self.get()
 
     def gen(self, steps: int) -> dict[str, object]:
@@ -246,7 +261,7 @@ class Market:
         if steps < 0:
             raise ValueError("steps must be non-negative")
         for _ in range(int(steps)):
-            self.step()
+            self._step_impl()
         return self.get()
 
     def get(self) -> dict[str, object]:
@@ -406,7 +421,7 @@ class Market:
             )
             self._history.record_event(event_row)
             self._history.record_debug(debug_row)
-            return {"event_row": event_row, "side": event["side"], "fill_qty": 0.0}
+            return {"side": event["side"], "fill_qty": 0.0}
 
         if event_type == "market":
             result = self._book.execute_market(event["side"], event["qty"])
@@ -447,7 +462,7 @@ class Market:
             )
             self._history.record_event(event_row)
             self._history.record_debug(debug_row)
-            return {"event_row": event_row, "side": event["side"], "fill_qty": float(result.filled_qty)}
+            return {"side": event["side"], "fill_qty": float(result.filled_qty)}
 
         canceled_qty = self._book.cancel_level(event["side"], event["tick"], event["qty"])
         if canceled_qty <= 0:
@@ -480,7 +495,7 @@ class Market:
         )
         self._history.record_event(event_row)
         self._history.record_debug(debug_row)
-        return {"event_row": event_row, "side": event["side"], "fill_qty": 0.0}
+        return {"side": event["side"], "fill_qty": 0.0}
 
     def _advance_session_clock(self) -> None:
         self._session_step += 1
@@ -490,6 +505,11 @@ class Market:
         self._session_phase, self._session_progress = resolve_session_phase(
             self._session_step,
             self.config.steps_per_day,
+        )
+        self._seasonality = seasonality_multipliers(
+            self._session_phase,
+            session_progress=self._session_progress,
+            scale=self.config.seasonality_scale,
         )
 
     def _ensure_visible_depth(self) -> None:
@@ -551,9 +571,9 @@ class Market:
             self._book,
             tick_size=self.tick_size,
             depth_levels=self.levels,
-            buy_flow=list(self._buy_flow),
-            sell_flow=list(self._sell_flow),
-            mid_returns=list(self._mid_returns),
+            buy_flow=self._buy_flow,
+            sell_flow=self._sell_flow,
+            mid_returns=self._mid_returns,
             buy_exec_ema=self._buy_exec_ema,
             sell_exec_ema=self._sell_exec_ema,
         )
@@ -562,11 +582,7 @@ class Market:
         return EngineContext(
             session_phase=self._session_phase,
             session_progress=self._session_progress,
-            seasonality=seasonality_multipliers(
-                self._session_phase,
-                session_progress=self._session_progress,
-                scale=self.config.seasonality_scale,
-            ),
+            seasonality=self._seasonality,
             hidden_vol=self._hidden_vol,
             excitation=self._excitation,
             burst_state=self._burst_state,
@@ -576,6 +592,7 @@ class Market:
             best_depth_deficit_bid=self._best_depth_deficit_bid,
             best_depth_deficit_ask=self._best_depth_deficit_ask,
             imbalance_displacement=self._imbalance_displacement,
+            directional_anchor=self._directional_anchor,
         )
 
     def _update_after_event_state(
@@ -598,11 +615,7 @@ class Market:
             config=self.config,
         )
         self._burst_state = derive_burst_state(self._excitation)
-        seasonality_depth = seasonality_multipliers(
-            self._session_phase,
-            session_progress=self._session_progress,
-            scale=self.config.seasonality_scale,
-        )["depth"]
+        seasonality_depth = self._seasonality["depth"]
         (
             self._spread_excess,
             self._best_depth_deficit_bid,
@@ -704,47 +717,47 @@ class Market:
         fill_qty: int | float,
         fills: list[tuple[float, float]],
         mid_price_after: float,
-    ) -> dict[str, object]:
-        return {
-            "step": self._step + 1,
-            "event_idx": event_idx,
-            "day": self._day,
-            "session_step": self._session_step,
-            "session_phase": self._session_phase,
-            "event_type": event_type,
-            "side": side,
-            "level": level,
-            "price": float(price),
-            "requested_qty": float(requested_qty),
-            "applied_qty": float(applied_qty),
-            "fill_qty": float(fill_qty),
-            "fills": list(fills),
-            "best_bid_after": tick_to_price(self._book.best_bid_tick, self.tick_size),
-            "best_ask_after": tick_to_price(self._book.best_ask_tick, self.tick_size),
-            "mid_price_after": float(mid_price_after),
-            "last_trade_price_after": float(self._last_trade_price),
-            "regime": self._regime,
-        }
+    ) -> tuple[object, ...]:
+        return (
+            self._step + 1,
+            event_idx,
+            self._day,
+            self._session_step,
+            self._session_phase,
+            event_type,
+            side,
+            level,
+            float(price),
+            float(requested_qty),
+            float(applied_qty),
+            float(fill_qty),
+            list(fills),
+            tick_to_price(self._book.best_bid_tick, self.tick_size),
+            tick_to_price(self._book.best_ask_tick, self.tick_size),
+            float(mid_price_after),
+            float(self._last_trade_price),
+            self._regime,
+        )
 
     def _build_debug_row(
         self,
         *,
         event_idx: int,
         event: dict[str, object],
-    ) -> dict[str, object]:
+    ) -> tuple[object, ...]:
         meta_side = event.get("meta_order_side")
         meta_order = self._meta_orders.get(meta_side) if meta_side in {"buy", "sell"} else None
-        return {
-            "step": self._step + 1,
-            "event_idx": event_idx,
-            "day": self._day,
-            "session_step": self._session_step,
-            "session_phase": self._session_phase,
-            "source": event.get("source", "organic"),
-            "participant_type": event.get("participant_type"),
-            "meta_order_id": event.get("meta_order_id"),
-            "meta_order_side": meta_side,
-            "meta_order_progress": meta_order_progress(meta_order),
-            "burst_state": self._burst_state,
-            "shock_state": self._shock_state.name if self._shock_state is not None else "none",
-        }
+        return (
+            self._step + 1,
+            event_idx,
+            self._day,
+            self._session_step,
+            self._session_phase,
+            event.get("source", "organic"),
+            event.get("participant_type"),
+            event.get("meta_order_id"),
+            meta_side,
+            meta_order_progress(meta_order),
+            self._burst_state,
+            self._shock_state.name if self._shock_state is not None else "none",
+        )

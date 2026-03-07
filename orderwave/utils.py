@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from functools import lru_cache
 
 import numpy as np
 
@@ -11,6 +12,7 @@ def clamp(value: float, lower: float, upper: float) -> float:
     return max(lower, min(upper, value))
 
 
+@lru_cache(maxsize=64)
 def infer_price_precision(tick_size: float) -> int:
     text = f"{tick_size:.10f}".rstrip("0")
     if "." not in text:

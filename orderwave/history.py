@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import copy
-
 import pandas as pd
 
 
@@ -105,16 +103,27 @@ class HistoryBuffer:
             )
         )
 
-    def record_event(self, event_row: dict[str, object]) -> None:
+    def record_event(self, event_row: tuple[object, ...] | dict[str, object]) -> None:
+        if isinstance(event_row, tuple):
+            self._event_rows.append(event_row)
+            return
         self._event_rows.append(tuple(event_row[column] for column in EVENT_COLUMNS))
 
-    def record_debug(self, debug_row: dict[str, object]) -> None:
+    def record_debug(self, debug_row: tuple[object, ...] | dict[str, object]) -> None:
+        if isinstance(debug_row, tuple):
+            self._debug_rows.append(debug_row)
+            return
         self._debug_rows.append(tuple(debug_row[column] for column in DEBUG_COLUMNS))
 
     def current(self) -> dict[str, object]:
         if self._current_snapshot is None:
             raise ValueError("no snapshot recorded")
-        return copy.deepcopy(self._current_snapshot)
+        snapshot = self._current_snapshot
+        return {
+            **snapshot,
+            "bids": [dict(level) for level in snapshot["bids"]],
+            "asks": [dict(level) for level in snapshot["asks"]],
+        }
 
     def dataframe(self) -> pd.DataFrame:
         return pd.DataFrame.from_records(self._rows, columns=SUMMARY_COLUMNS)

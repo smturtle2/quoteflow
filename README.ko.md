@@ -71,6 +71,14 @@ python benchmarks/benchmark.py --steps 5000 --preset balanced
 - `events_per_step`
 - `market_flow=buy=... sell=... buy_share=...`
 
+## 검증 스윕
+
+장기 검증용 runner도 포함되어 있습니다. preset 분리, seed 안정성, 불변식, knob 민감도를 CSV/PNG/markdown 산출물로 정리합니다.
+
+```bash
+python scripts/validate_orderwave.py --steps 10000 --seeds 20 --outdir artifacts/validation
+```
+
 ## API 표면
 
 | API | 설명 |

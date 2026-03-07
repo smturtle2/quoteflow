@@ -89,6 +89,22 @@ The script reports:
 - `events_per_step`
 - `market_flow=buy=... sell=... buy_share=...`
 
+## Validation Sweep
+
+Use the validation runner when you want the full multi-seed experiment plan rather than a single throughput snapshot.
+
+```bash
+python scripts/validate_orderwave.py --steps 10000 --seeds 20 --outdir artifacts/validation
+```
+
+The runner writes:
+
+- `validation-runs.csv`
+- `validation-summary.csv`
+- `validation-reproducibility.csv`
+- `report.md`
+- preset-level PNG summaries and representative diagnostics plots
+
 ## Preset Comparison
 
 ![Preset comparison](../assets/orderwave-built-in-presets.png)

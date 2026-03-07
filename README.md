@@ -71,6 +71,14 @@ Expected output includes:
 - `events_per_step`
 - `market_flow=buy=... sell=... buy_share=...`
 
+## Validation Sweep
+
+The repository also includes a longer-form validation runner that summarizes preset separation, seed stability, invariants, and knob sensitivity into CSV, PNG, and markdown artifacts.
+
+```bash
+python scripts/validate_orderwave.py --steps 10000 --seeds 20 --outdir artifacts/validation
+```
+
 ## API Surface
 
 | API | Purpose |

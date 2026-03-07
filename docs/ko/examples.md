@@ -89,6 +89,22 @@ python benchmarks/benchmark.py --steps 5000 --preset balanced
 - `events_per_step`
 - `market_flow=buy=... sell=... buy_share=...`
 
+## 검증 스윕
+
+단일 throughput 측정이 아니라 multi-seed 검증 계획 전체를 실행하려면 validation runner를 사용하면 됩니다.
+
+```bash
+python scripts/validate_orderwave.py --steps 10000 --seeds 20 --outdir artifacts/validation
+```
+
+runner는 다음 산출물을 생성합니다.
+
+- `validation-runs.csv`
+- `validation-summary.csv`
+- `validation-reproducibility.csv`
+- `report.md`
+- preset 요약 PNG와 representative diagnostics PNG
+
 ## Preset 비교
 
 ![Preset comparison](../assets/orderwave-built-in-presets.png)

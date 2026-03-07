@@ -51,6 +51,7 @@ class EngineContext:
     best_depth_deficit_bid: float
     best_depth_deficit_ask: float
     imbalance_displacement: float
+    directional_anchor: float
 
 
 PARTICIPANT_TYPES: tuple[ParticipantType, ...] = (
@@ -188,9 +189,58 @@ def advance_hidden_volatility(
     target = regime_target + (0.65 * realized) + (0.06 * context.spread_excess) + excitation_push
     target *= (0.9 + 0.1 * seasonality) * shock_boost
 
+    vol_noise_scale = 0.9 + (0.08 * math.sqrt(clamp(config.fair_price_vol_scale, 0.5, 2.5)))
     next_hidden_vol = hidden_vol + (params.hidden_vol_reversion * (target - hidden_vol))
-    next_hidden_vol += params.hidden_vol_vol * rng.normal()
-    return float(clamp(next_hidden_vol, 0.08, 3.0) * config.fair_price_vol_scale)
+    next_hidden_vol += params.hidden_vol_vol * vol_noise_scale * rng.normal()
+    return float(clamp(next_hidden_vol, 0.08, 3.0))
+
+
+def advance_directional_anchor(
+    current_anchor: float,
+    *,
+    features: MarketFeatures,
+    regime: RegimeName,
+    context: EngineContext,
+    rng: np.random.Generator,
+    params: PresetParams,
+) -> float:
+    profile = params.regimes[regime]
+    flow_signal = _bounded_signal(features.recent_flow_imbalance, scale=0.75)
+    return_signal = _bounded_signal(features.recent_return / max(features.spread_price, 0.01), scale=1.4)
+    excitation_signal = _bounded_signal(
+        context.excitation["market_buy"] - context.excitation["market_sell"],
+        scale=2.0,
+    )
+    meta_signal = _meta_signal(context.meta_orders)
+    shock_signal = _shock_directional_signal(context.shock)
+
+    persistence = clamp(0.72 + (0.55 * max(profile.fair_drift, 0.0)), 0.72, 0.96)
+    if regime == "directional":
+        persistence = clamp(persistence + 0.03, 0.72, 0.975)
+    elif regime == "calm":
+        persistence = max(0.7, persistence - 0.08)
+
+    drift_pulse = 0.0
+    if regime == "directional":
+        sign_source = current_anchor
+        if abs(sign_source) < 0.08:
+            sign_source = meta_signal + flow_signal + excitation_signal + (0.15 * rng.normal())
+        drift_sign = 1.0 if sign_source >= 0.0 else -1.0
+        drift_pulse = drift_sign * (0.03 + (0.22 * max(profile.fair_drift, 0.0)))
+        if abs(current_anchor) < 0.12 and rng.random() < (0.05 + (0.18 * max(profile.fair_drift, 0.0))):
+            drift_pulse += (1.0 if rng.random() < 0.5 else -1.0) * (0.06 + (0.16 * max(profile.fair_drift, 0.0)))
+
+    target = (
+        (0.5 * meta_signal)
+        + (0.22 * flow_signal)
+        + (0.12 * return_signal)
+        + (0.1 * excitation_signal)
+        + (0.14 * shock_signal)
+        + drift_pulse
+    )
+    noise_scale = 0.01 + (0.035 * profile.fair_vol)
+    next_anchor = (persistence * current_anchor) + ((1.0 - persistence) * target) + (noise_scale * rng.normal())
+    return float(clamp(next_anchor, -1.5, 1.5))
 
 
 def advance_hidden_fair_state(
@@ -202,6 +252,7 @@ def advance_hidden_fair_state(
     regime: RegimeName,
     context: EngineContext,
     rng: np.random.Generator,
+    config: MarketConfig,
     params: PresetParams,
 ) -> tuple[float, float, float]:
     profile = params.regimes[regime]
@@ -210,34 +261,45 @@ def advance_hidden_fair_state(
     return_signal = _bounded_signal(features.recent_return / max(features.spread_price, 0.01), scale=1.2)
     meta_signal = _meta_signal(context.meta_orders)
     shock_signal = _shock_directional_signal(context.shock)
+    slow_state_signal = _bounded_signal(slow_component, scale=1.0)
+    fast_state_signal = _bounded_signal(fast_component, scale=0.8)
+    fair_noise_scale = clamp(0.4 + (0.6 * config.fair_price_vol_scale), 0.4, 2.2)
+    jump_prob_scale = clamp(0.55 + (0.45 * config.fair_price_vol_scale), 0.45, 2.1)
+    jump_amp_scale = clamp(0.3 + (0.7 * config.fair_price_vol_scale), 0.4, 2.4)
 
     slow_target = (
-        0.04 * flow_signal
-        + 0.02 * depth_signal
-        + 0.4 * meta_signal
-        + 0.25 * shock_signal
+        0.03 * flow_signal
+        + 0.015 * depth_signal
+        + 0.48 * meta_signal
+        + 0.27 * shock_signal
+        + (0.25 * context.directional_anchor)
+        + (0.3 * max(profile.fair_drift, 0.0) * slow_state_signal)
     )
-    slow_noise = params.slow_fair_vol * (0.35 + (0.45 * context.hidden_vol)) * rng.normal()
-    next_slow = slow_component + 0.16 * (slow_target - slow_component)
+    slow_noise = params.slow_fair_vol * fair_noise_scale * (0.3 + (0.35 * context.hidden_vol)) * rng.normal()
+    next_slow = slow_component + params.fair_mean_reversion * (slow_target - slow_component)
     next_slow += profile.fair_drift * slow_target
     next_slow += slow_noise
 
     fast_target = (
-        0.06 * flow_signal
-        + 0.03 * depth_signal
-        + 0.06 * return_signal
-        + 0.12 * shock_signal
+        0.045 * flow_signal
+        + 0.02 * depth_signal
+        + 0.05 * return_signal
+        + 0.035 * meta_signal
+        + 0.11 * shock_signal
+        + (0.08 * context.directional_anchor)
+        + (0.08 * slow_state_signal)
+        + (0.02 * fast_state_signal)
         - 0.03 * context.imbalance_displacement
     )
-    fast_noise = params.fast_fair_vol * math.sqrt(context.hidden_vol) * rng.normal()
+    fast_noise = params.fast_fair_vol * fair_noise_scale * max(0.35, math.sqrt(context.hidden_vol)) * rng.normal()
     next_fast = fast_component + params.fast_fair_reversion * (fast_target - fast_component) + fast_noise
 
     next_jump = jump_component * 0.45
     if context.shock is not None and context.shock.name == "fair_jump":
         jump_sign = 1.0 if context.shock.side == "buy" else -1.0
-        next_jump += jump_sign * context.shock.intensity * (0.6 + 0.1 * rng.normal())
-    elif rng.random() < params.fair_jump_prob:
-        next_jump += rng.normal(0.0, params.fair_jump_scale * 0.55)
+        next_jump += jump_sign * context.shock.intensity * jump_amp_scale * (0.6 + 0.1 * rng.normal())
+    elif rng.random() < clamp(params.fair_jump_prob * jump_prob_scale, 0.0, 0.2):
+        next_jump += rng.normal(0.0, params.fair_jump_scale * jump_amp_scale * 0.55)
 
     return float(next_slow), float(next_fast), float(next_jump)
 
@@ -294,7 +356,15 @@ def advance_meta_orders(
                 updated[side] = aged
 
     fair_gap = hidden_fair_tick - features.mid_tick
-    directional_bias = _bounded_signal(fair_gap, scale=2.7) + (0.45 * _bounded_signal(features.recent_flow_imbalance, scale=0.9))
+    return_signal = _bounded_signal(features.recent_return / max(features.spread_price, 0.01), scale=1.5)
+    active_meta_signal = _bounded_signal(_meta_signal(updated), scale=1.0)
+    directional_bias = (
+        1.15 * _bounded_signal(fair_gap, scale=2.5)
+        + (0.55 * _bounded_signal(features.recent_flow_imbalance, scale=0.8))
+        + (0.22 * return_signal)
+        + (0.45 * active_meta_signal)
+        + (0.6 * context.directional_anchor)
+    )
     regime_scale = {"calm": 0.7, "directional": 1.15, "stressed": 0.95}[regime]
     spawn_scale = params.meta_spawn_prob * config.meta_order_scale * context.seasonality["meta"] * regime_scale
     if context.shock is not None and context.shock.name == "one_sided_taker_surge":
@@ -303,14 +373,33 @@ def advance_meta_orders(
     for side in ("buy", "sell"):
         if updated[side] is not None:
             continue
+        scale_bias = max(config.meta_order_scale - 1.0, 0.0)
         side_sign = 1.0 if side == "buy" else -1.0
+        opposite_side = "sell" if side == "buy" else "buy"
+        opposite_meta = updated[opposite_side]
         directional_push = max(side_sign * directional_bias, 0.0)
-        spawn_prob = clamp(spawn_scale * (0.35 + (0.6 * directional_push)), 0.0, 0.12)
+        spawn_prob = spawn_scale * (0.2 + (0.9 * directional_push))
+        if side_sign * active_meta_signal > 0.0:
+            spawn_prob *= 1.2 + (0.15 * scale_bias)
+        elif side_sign * active_meta_signal < 0.0:
+            spawn_prob *= 0.45 / (1.0 + scale_bias)
+        if opposite_meta is not None:
+            opposition = opposite_meta.urgency * (1.0 - meta_order_progress(opposite_meta))
+            if regime == "directional" and opposition > 0.08:
+                continue
+            if opposition > 0.2:
+                spawn_prob *= 0.06 / (1.0 + (0.5 * scale_bias))
+            else:
+                spawn_prob *= 1.0 / (1.0 + ((4.5 + (2.0 * scale_bias)) * opposition))
+        spawn_prob = clamp(spawn_prob, 0.0, 0.12)
         if rng.random() >= spawn_prob:
             continue
         qty = max(8.0, rng.lognormal(params.meta_qty_log_mean, params.meta_qty_log_sigma))
-        urgency = float(clamp(0.55 + (0.55 * directional_push) + (0.14 * rng.normal()), 0.4, 1.4))
-        decay_half_life = max(6, int(rng.poisson(params.meta_duration_mean) + 4))
+        qty *= 1.0 + (0.14 * scale_bias)
+        urgency = float(clamp(0.55 + (0.62 * directional_push) + (0.14 * rng.normal()), 0.4, 1.4))
+        urgency *= 1.0 + (0.08 * scale_bias)
+        base_duration = max(6, int(rng.poisson(params.meta_duration_mean) + 4))
+        decay_half_life = max(6, int(base_duration * (1.0 + (0.16 * scale_bias))))
         updated[side] = MetaOrderState(
             id=next_meta_order_id,
             side=side,
@@ -494,7 +583,7 @@ def sample_participant_events(
     ):
         events.extend(
             _sample_limit_budget_events(
-                _participant_mix_specs("limit", side, context=context),
+                _participant_mix_specs("limit", side, context=context, config=config),
                 total_events=side_count,
                 book=book,
                 features=features,
@@ -515,6 +604,7 @@ def sample_participant_events(
                 hidden_fair_tick=hidden_fair_tick,
                 regime=regime,
                 context=context,
+                config=config,
                 params=params,
             ),
             "sell": _aggregate_market_side_weight(
@@ -523,6 +613,7 @@ def sample_participant_events(
                 hidden_fair_tick=hidden_fair_tick,
                 regime=regime,
                 context=context,
+                config=config,
                 params=params,
             ),
         },
@@ -531,7 +622,7 @@ def sample_participant_events(
     ):
         events.extend(
             _sample_market_budget_events(
-                _participant_mix_specs("market", side, context=context),
+                _participant_mix_specs("market", side, context=context, config=config),
                 total_events=side_count,
                 features=features,
                 hidden_fair_tick=hidden_fair_tick,
@@ -557,7 +648,7 @@ def sample_participant_events(
     for side, side_count in _allocate_side_counts(cancel_side_weights, cancel_budget, rng=rng):
         events.extend(
             _sample_cancel_budget_events(
-                _participant_mix_specs("cancel", side, context=context),
+                _participant_mix_specs("cancel", side, context=context, config=config),
                 total_events=side_count,
                 book=book,
                 features=features,
@@ -666,7 +757,7 @@ def _sample_event_budget(
         base = params.target_market_events
         multiplier = context.seasonality["market"] * {"calm": 0.9, "directional": 1.15, "stressed": 1.25}[regime]
         multiplier *= 1.0 + (0.12 * (context.excitation["market_buy"] + context.excitation["market_sell"]))
-        multiplier *= 1.0 + (0.08 * abs(_meta_signal(context.meta_orders)))
+        multiplier *= 1.0 + (0.3 * abs(_meta_signal(context.meta_orders)) * (0.7 + (0.6 * config.meta_order_scale)))
         if context.shock is not None:
             if context.shock.name == "one_sided_taker_surge":
                 multiplier *= 1.0 + (0.35 * context.shock.intensity)
@@ -714,7 +805,8 @@ def _participant_mix_specs(
     side: str,
     *,
     context: EngineContext,
- ) -> list[tuple[ParticipantType, str, float]]:
+    config: MarketConfig,
+) -> list[tuple[ParticipantType, str, float]]:
     if event_type == "limit":
         weights: dict[ParticipantType, float] = {
             "passive_lp": 0.48,
@@ -740,8 +832,9 @@ def _participant_mix_specs(
         }
         same_meta = context.meta_orders[side]
         if same_meta is not None:
-            weights["informed_meta"] += 0.1 * same_meta.urgency
-            weights["noise_taker"] = max(0.28, weights["noise_taker"] - 0.06)
+            scale_bias = max(config.meta_order_scale - 1.0, 0.0)
+            weights["informed_meta"] += (0.22 + (0.4 * scale_bias)) * same_meta.urgency
+            weights["noise_taker"] = max(0.12, weights["noise_taker"] - (0.12 + (0.14 * scale_bias)))
         if context.shock is not None and context.shock.name == "one_sided_taker_surge" and context.shock.side == side:
             weights["noise_taker"] += 0.12
         if context.shock is not None and context.shock.name == "vol_burst":
@@ -788,6 +881,7 @@ def _aggregate_limit_side_weight(
         (0.08 * fair_signal)
         + (0.05 * flow_signal)
         + (0.03 * imbalance_signal)
+        + (0.04 * context.directional_anchor)
         + (0.06 * (same_deficit - opposite_deficit))
         + (0.03 * ((opposite_thinness - thinness)))
         + (0.025 * (same_trace - opposite_trace))
@@ -814,6 +908,7 @@ def _aggregate_market_side_weight(
     hidden_fair_tick: float,
     regime: RegimeName,
     context: EngineContext,
+    config: MarketConfig,
     params: PresetParams,
 ) -> float:
     fair_signal = _bounded_signal(hidden_fair_tick - features.mid_tick, scale=2.8)
@@ -828,6 +923,7 @@ def _aggregate_market_side_weight(
         (0.12 * fair_signal)
         + (0.09 * flow_signal)
         + (0.05 * imbalance_signal)
+        + (0.14 * context.directional_anchor)
         + (0.06 * thin_signal)
         + (0.045 * trace_signal)
     )
@@ -840,7 +936,8 @@ def _aggregate_market_side_weight(
 
     meta_order = context.meta_orders[side]
     if meta_order is not None:
-        log_weight += 0.12 * meta_order.urgency * (1.0 - meta_order_progress(meta_order))
+        progress_left = 1.0 - meta_order_progress(meta_order)
+        log_weight += 0.28 * meta_order.urgency * progress_left * config.meta_order_scale
     if context.shock is not None:
         if context.shock.name == "one_sided_taker_surge" and context.shock.side == side:
             log_weight += 0.22 * context.shock.intensity
@@ -1338,11 +1435,13 @@ def _market_intensity(
     fair_signal = _bounded_signal(hidden_fair_tick - features.mid_tick, scale=2.3)
     flow_signal = _bounded_signal(features.recent_flow_imbalance, scale=0.75)
     imbalance_signal = _bounded_signal(features.depth_imbalance, scale=0.55)
+    anchor_signal = _bounded_signal(context.directional_anchor, scale=1.0)
     sign = 1.0 if aggressor_side == "buy" else -1.0
     directional = (
         max(sign * fair_signal, 0.0)
         + 0.75 * max(sign * flow_signal, 0.0)
         + 0.55 * max(sign * imbalance_signal, 0.0)
+        + 0.85 * max(sign * anchor_signal, 0.0)
     )
     opposite_thinness = features.thin_ask_best if aggressor_side == "buy" else features.thin_bid_best
     same_market_trace = context.excitation["market_buy"] if aggressor_side == "buy" else context.excitation["market_sell"]
@@ -1365,7 +1464,7 @@ def _market_intensity(
     meta_order = context.meta_orders[aggressor_side]
     if meta_order is not None:
         progress_left = 1.0 - meta_order_progress(meta_order)
-        log_lambda += 0.35 * meta_order.urgency * progress_left * config.meta_order_scale
+        log_lambda += 0.75 * meta_order.urgency * progress_left * config.meta_order_scale
     if context.shock is not None:
         if context.shock.name == "one_sided_taker_surge" and context.shock.side == aggressor_side:
             log_lambda += 0.7 * context.shock.intensity
