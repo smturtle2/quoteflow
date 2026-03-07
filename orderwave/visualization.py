@@ -2,6 +2,7 @@ from __future__ import annotations
 
 """Internal plotting helpers for built-in orderwave visualizations."""
 
+from array import array
 from dataclasses import dataclass
 from typing import Mapping, Sequence
 
@@ -22,6 +23,88 @@ class VisualHistoryRow:
     step: int
     bid_qty: np.ndarray
     ask_qty: np.ndarray
+
+
+class VisualHistoryStore:
+    """Columnar visible-book history used by market overview plots."""
+
+    def __init__(self, *, depth: int) -> None:
+        if depth <= 0:
+            raise ValueError("depth must be positive")
+        self.depth = int(depth)
+        self._step = array("I")
+        self._bid_qty = array("f")
+        self._ask_qty = array("f")
+
+    def append(
+        self,
+        *,
+        step: int,
+        bid_levels: Sequence[tuple[int, int]],
+        ask_levels: Sequence[tuple[int, int]],
+    ) -> None:
+        self._step.append(int(step))
+        self._extend_side(self._bid_qty, bid_levels)
+        self._extend_side(self._ask_qty, ask_levels)
+
+    def __len__(self) -> int:
+        return len(self._step)
+
+    def __iter__(self):
+        bid_matrix = self.bid_matrix()
+        ask_matrix = self.ask_matrix()
+        steps = self.steps_array()
+        for index in range(len(self)):
+            yield VisualHistoryRow(
+                step=int(steps[index]),
+                bid_qty=bid_matrix[index].astype(float, copy=False),
+                ask_qty=ask_matrix[index].astype(float, copy=False),
+            )
+
+    def __getitem__(self, item):
+        if isinstance(item, slice):
+            start, stop, stride = item.indices(len(self))
+            if stride != 1:
+                return [self[index] for index in range(start, stop, stride)]
+            clone = VisualHistoryStore(depth=self.depth)
+            if start >= stop:
+                return clone
+            bid_matrix = self.bid_matrix()[start:stop]
+            ask_matrix = self.ask_matrix()[start:stop]
+            clone._step.extend(int(value) for value in self.steps_array()[start:stop])
+            clone._bid_qty.extend(float(value) for value in bid_matrix.reshape(-1))
+            clone._ask_qty.extend(float(value) for value in ask_matrix.reshape(-1))
+            return clone
+        index = int(item)
+        bid_matrix = self.bid_matrix()
+        ask_matrix = self.ask_matrix()
+        steps = self.steps_array()
+        return VisualHistoryRow(
+            step=int(steps[index]),
+            bid_qty=bid_matrix[index].astype(float, copy=False),
+            ask_qty=ask_matrix[index].astype(float, copy=False),
+        )
+
+    def steps_array(self) -> np.ndarray:
+        return np.frombuffer(self._step, dtype=np.uint32).astype(np.int64, copy=False)
+
+    def bid_matrix(self) -> np.ndarray:
+        if len(self) == 0:
+            return np.empty((0, self.depth), dtype=np.float32)
+        return np.frombuffer(self._bid_qty, dtype=np.float32).reshape(len(self), self.depth)
+
+    def ask_matrix(self) -> np.ndarray:
+        if len(self) == 0:
+            return np.empty((0, self.depth), dtype=np.float32)
+        return np.frombuffer(self._ask_qty, dtype=np.float32).reshape(len(self), self.depth)
+
+    def _extend_side(self, target: array, levels: Sequence[tuple[int, int]]) -> None:
+        written = 0
+        for _, qty in levels[: self.depth]:
+            target.append(float(qty))
+            written += 1
+        for _ in range(written, self.depth):
+            target.append(float("nan"))
 
 
 @dataclass(frozen=True)
@@ -51,7 +134,7 @@ def capture_visual_history_row(book: OrderBook, *, step: int, depth: int) -> Vis
     return VisualHistoryRow(step=int(step), bid_qty=bid_qty, ask_qty=ask_qty)
 
 
-def build_depth_heatmap(rows: Sequence[VisualHistoryRow], *, levels: int) -> DepthHeatmap:
+def build_depth_heatmap(rows: Sequence[VisualHistoryRow] | VisualHistoryStore, *, levels: int) -> DepthHeatmap:
     """Build a signed depth heatmap matrix from captured book rows."""
 
     if levels <= 0:
@@ -59,28 +142,32 @@ def build_depth_heatmap(rows: Sequence[VisualHistoryRow], *, levels: int) -> Dep
     if not rows:
         raise ValueError("rows must not be empty")
 
-    max_depth = len(rows[0].bid_qty)
-    clipped_levels = min(levels, max_depth)
-    steps = np.array([row.step for row in rows], dtype=int)
+    if isinstance(rows, VisualHistoryStore):
+        max_depth = rows.depth
+        clipped_levels = min(levels, max_depth)
+        steps = rows.steps_array()
+        bid_matrix = rows.bid_matrix()[:, :clipped_levels]
+        ask_matrix = rows.ask_matrix()[:, :clipped_levels]
+        row_count = len(rows)
+    else:
+        max_depth = len(rows[0].bid_qty)
+        clipped_levels = min(levels, max_depth)
+        steps = np.array([row.step for row in rows], dtype=int)
+        bid_matrix = np.vstack([row.bid_qty[:clipped_levels] for row in rows]).astype(float, copy=False)
+        ask_matrix = np.vstack([row.ask_qty[:clipped_levels] for row in rows]).astype(float, copy=False)
+        row_count = len(rows)
     ask_labels = [f"ask {level}" for level in range(clipped_levels, 0, -1)]
     bid_labels = [f"bid {level}" for level in range(1, clipped_levels + 1)]
     row_labels = ask_labels + bid_labels
-    signed_depth = np.full((len(row_labels), len(rows)), np.nan, dtype=float)
+    signed_depth = np.full((len(row_labels), row_count), np.nan, dtype=float)
 
-    for column, row in enumerate(rows):
-        ask_qty = row.ask_qty[:clipped_levels]
-        bid_qty = row.bid_qty[:clipped_levels]
-
-        for depth_index, qty in enumerate(ask_qty):
-            if np.isnan(qty):
-                continue
-            signed_depth[clipped_levels - depth_index - 1, column] = -float(qty)
-
-        bid_offset = clipped_levels
-        for depth_index, qty in enumerate(bid_qty):
-            if np.isnan(qty):
-                continue
-            signed_depth[bid_offset + depth_index, column] = float(qty)
+    for depth_index in range(clipped_levels):
+        ask_values = ask_matrix[:, depth_index].astype(float, copy=False)
+        bid_values = bid_matrix[:, depth_index].astype(float, copy=False)
+        ask_target = clipped_levels - depth_index - 1
+        bid_target = clipped_levels + depth_index
+        signed_depth[ask_target, np.isfinite(ask_values)] = -ask_values[np.isfinite(ask_values)]
+        signed_depth[bid_target, np.isfinite(bid_values)] = bid_values[np.isfinite(bid_values)]
 
     return DepthHeatmap(
         steps=steps,
@@ -105,7 +192,7 @@ def plot_market_overview(
     if row_count == 0:
         raise ValueError("overview plot requires recorded history")
 
-    history_view = history.iloc[:row_count].copy(deep=True)
+    history_view = history.iloc[:row_count]
     heatmap = build_depth_heatmap(rows[:row_count], levels=levels)
     steps = history_view["step"].to_numpy()
     mid_price = history_view["mid_price"].to_numpy()

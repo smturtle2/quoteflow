@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pandas as pd
+import pytest
 
 from orderwave import Market
 from orderwave.book import OrderBook
@@ -83,6 +84,24 @@ def test_history_contains_summary_columns_only() -> None:
     assert "asks" not in history.columns
 
 
+def test_history_only_mode_preserves_summary_but_disables_event_and_debug_apis() -> None:
+    full_market = Market(seed=13, config={"preset": "balanced", "logging_mode": "full"})
+    compact_market = Market(seed=13, config={"preset": "balanced", "logging_mode": "history_only"})
+
+    full_market.gen(steps=40)
+    compact_market.gen(steps=40)
+
+    pd.testing.assert_frame_equal(full_market.get_history(), compact_market.get_history())
+    assert compact_market.get()["step"] == full_market.get()["step"]
+
+    with pytest.raises(RuntimeError, match="logging_mode='full'"):
+        compact_market.get_event_history()
+    with pytest.raises(RuntimeError, match="logging_mode='full'"):
+        compact_market.get_debug_history()
+    with pytest.raises(RuntimeError, match="logging_mode='full'"):
+        compact_market.plot_diagnostics()
+
+
 def test_book_invariants_hold_over_random_run() -> None:
     market = Market(seed=9, config={"preset": "volatile"})
     market.gen(steps=100)
@@ -115,7 +134,9 @@ def test_quote_only_book_change_can_move_mid_without_touching_last_price() -> No
             buy_flow=[],
             sell_flow=[],
             mid_returns=[],
-        )
+        ),
+        bid_levels=market._book.top_levels("bid", market.levels),
+        ask_levels=market._book.top_levels("ask", market.levels),
     )
 
     market._book.cancel_level("ask", 10003, 5)
@@ -128,7 +149,9 @@ def test_quote_only_book_change_can_move_mid_without_touching_last_price() -> No
             buy_flow=[],
             sell_flow=[],
             mid_returns=[],
-        )
+        ),
+        bid_levels=market._book.top_levels("bid", market.levels),
+        ask_levels=market._book.top_levels("ask", market.levels),
     )
 
     assert before["mid_price"] != after["mid_price"]

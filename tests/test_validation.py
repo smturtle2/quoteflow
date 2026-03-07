@@ -1,75 +1,571 @@
 from __future__ import annotations
 
+from pathlib import Path
+
+import pandas as pd
+
 from orderwave.validation import (
+    benchmark_logging_modes,
+    collect_invariant_failures,
     compute_run_metrics,
     evaluate_validation_results,
     run_market_validation,
     run_reproducibility_checks,
-    run_sensitivity_grid,
-    run_validation_grid,
+    run_validation_pipeline,
     summarize_sensitivity_grid,
-    summarize_validation_grid,
 )
 
 
-def test_compute_run_metrics_smoke() -> None:
-    run = run_market_validation(preset="balanced", seed=5, steps=80)
-    metrics = compute_run_metrics(run, preset="balanced", seed=5, steps=80)
+def test_compute_run_metrics_respects_warmup() -> None:
+    run = run_market_validation(preset="balanced", seed=5, steps=40, warmup_fraction=0.25)
+    metrics = compute_run_metrics(run, stage="baseline", preset="balanced", seed=5)
 
-    assert metrics["preset"] == "balanced"
-    assert metrics["seed"] == 5
-    assert metrics["invariants_ok"] is True
+    assert metrics["warmup_cutoff_step"] == 10
+    assert metrics["analysis_steps"] == 31
+    assert metrics["run_failed"] is False
+    assert metrics["mean_spread"] > 0.0
     assert metrics["events_per_step"] > 0.0
-    assert 0.0 < metrics["market_buy_share"] < 1.0
-    assert metrics["steps_per_second"] > 0.0
+    assert metrics["bytes_per_logged_event"] > 0.0
+    assert metrics["knob_scale"] is None
+    assert metrics["repeat_idx"] is None
 
 
-def test_validation_grid_and_summary_smoke() -> None:
-    run_metrics = run_validation_grid(
-        presets=("balanced", "trend"),
-        seeds=(1, 2),
-        steps=60,
-    )
-    summary = summarize_validation_grid(run_metrics)
+def test_collect_invariant_failures_empty_for_smoke_run() -> None:
+    run = run_market_validation(preset="balanced", seed=7, steps=60)
+    failures = collect_invariant_failures(run, stage="baseline", preset="balanced", seed=7)
+
+    assert list(failures.columns) == [
+        "preset",
+        "seed",
+        "stage",
+        "step",
+        "event_idx",
+        "invariant_name",
+        "details",
+    ]
+    assert failures.empty
+
+
+def test_reproducibility_hash_and_step_equivalence() -> None:
     reproducibility = run_reproducibility_checks(
         presets=("balanced", "trend"),
         seed=3,
         steps=30,
     )
 
-    assert len(run_metrics) == 4
-    assert set(summary["preset"]) == {"balanced", "trend"}
-    assert reproducibility["all_reproducible"].all()
+    assert len(reproducibility) == 2
+    assert reproducibility["history_hash_equal"].all()
+    assert reproducibility["event_hash_equal"].all()
+    assert reproducibility["debug_hash_equal"].all()
+    assert reproducibility["metrics_hash_equal"].all()
+    assert reproducibility["gen_vs_step_history_equal"].all()
+    assert reproducibility["gen_vs_step_event_equal"].all()
+    assert reproducibility["gen_vs_step_debug_equal"].all()
 
 
-def test_sensitivity_summary_and_verdict_smoke() -> None:
-    run_metrics = run_validation_grid(
-        presets=("balanced", "trend", "volatile"),
-        seeds=(1, 2),
-        steps=50,
+def test_sensitivity_summary_direction_scoring() -> None:
+    metrics = pd.DataFrame(
+        [
+            {
+                "knob_name": "shock_scale",
+                "knob_scale": 0.5,
+                "limit_share": 0.2,
+                "events_per_step_market": 0.5,
+                "cancel_share": 0.4,
+                "realized_vol": 0.8,
+                "regime_switch_rate": 0.1,
+                "phase_spread_range": 0.1,
+                "phase_fill_range": 0.2,
+                "buy_event_count_acf1": 0.1,
+                "cancel_event_count_acf1": 0.2,
+                "meta_active_directional_ratio": 0.3,
+                "shock_to_calm_ratio": 1.1,
+            },
+            {
+                "knob_name": "shock_scale",
+                "knob_scale": 1.0,
+                "limit_share": 0.2,
+                "events_per_step_market": 0.5,
+                "cancel_share": 0.4,
+                "realized_vol": 0.8,
+                "regime_switch_rate": 0.1,
+                "phase_spread_range": 0.1,
+                "phase_fill_range": 0.2,
+                "buy_event_count_acf1": 0.1,
+                "cancel_event_count_acf1": 0.2,
+                "meta_active_directional_ratio": 0.3,
+                "shock_to_calm_ratio": 1.3,
+            },
+            {
+                "knob_name": "shock_scale",
+                "knob_scale": 1.5,
+                "limit_share": 0.2,
+                "events_per_step_market": 0.5,
+                "cancel_share": 0.4,
+                "realized_vol": 0.8,
+                "regime_switch_rate": 0.1,
+                "phase_spread_range": 0.1,
+                "phase_fill_range": 0.2,
+                "buy_event_count_acf1": 0.1,
+                "cancel_event_count_acf1": 0.2,
+                "meta_active_directional_ratio": 0.3,
+                "shock_to_calm_ratio": 1.5,
+            },
+            {
+                "knob_name": "shock_scale",
+                "knob_scale": 2.0,
+                "limit_share": 0.2,
+                "events_per_step_market": 0.5,
+                "cancel_share": 0.4,
+                "realized_vol": 0.8,
+                "regime_switch_rate": 0.1,
+                "phase_spread_range": 0.1,
+                "phase_fill_range": 0.2,
+                "buy_event_count_acf1": 0.1,
+                "cancel_event_count_acf1": 0.2,
+                "meta_active_directional_ratio": 0.3,
+                "shock_to_calm_ratio": 1.8,
+            },
+            {
+                "knob_name": "meta_order_scale",
+                "knob_scale": 0.5,
+                "limit_share": 0.2,
+                "events_per_step_market": 0.5,
+                "cancel_share": 0.4,
+                "realized_vol": 0.8,
+                "regime_switch_rate": 0.1,
+                "phase_spread_range": 0.1,
+                "phase_fill_range": 0.2,
+                "buy_event_count_acf1": 0.1,
+                "cancel_event_count_acf1": 0.2,
+                "meta_active_directional_ratio": 0.6,
+                "shock_to_calm_ratio": 1.1,
+            },
+            {
+                "knob_name": "meta_order_scale",
+                "knob_scale": 1.0,
+                "limit_share": 0.2,
+                "events_per_step_market": 0.5,
+                "cancel_share": 0.4,
+                "realized_vol": 0.8,
+                "regime_switch_rate": 0.1,
+                "phase_spread_range": 0.1,
+                "phase_fill_range": 0.2,
+                "buy_event_count_acf1": 0.1,
+                "cancel_event_count_acf1": 0.2,
+                "meta_active_directional_ratio": 0.5,
+                "shock_to_calm_ratio": 1.1,
+            },
+            {
+                "knob_name": "meta_order_scale",
+                "knob_scale": 1.5,
+                "limit_share": 0.2,
+                "events_per_step_market": 0.5,
+                "cancel_share": 0.4,
+                "realized_vol": 0.8,
+                "regime_switch_rate": 0.1,
+                "phase_spread_range": 0.1,
+                "phase_fill_range": 0.2,
+                "buy_event_count_acf1": 0.1,
+                "cancel_event_count_acf1": 0.2,
+                "meta_active_directional_ratio": 0.4,
+                "shock_to_calm_ratio": 1.1,
+            },
+            {
+                "knob_name": "meta_order_scale",
+                "knob_scale": 2.0,
+                "limit_share": 0.2,
+                "events_per_step_market": 0.5,
+                "cancel_share": 0.4,
+                "realized_vol": 0.8,
+                "regime_switch_rate": 0.1,
+                "phase_spread_range": 0.1,
+                "phase_fill_range": 0.2,
+                "buy_event_count_acf1": 0.1,
+                "cancel_event_count_acf1": 0.2,
+                "meta_active_directional_ratio": 0.3,
+                "shock_to_calm_ratio": 1.1,
+            },
+        ]
     )
-    summary = summarize_validation_grid(run_metrics)
-    reproducibility = run_reproducibility_checks(
-        presets=("balanced", "trend", "volatile"),
-        seed=4,
-        steps=25,
+
+    summary = summarize_sensitivity_grid(metrics)
+
+    assert bool(summary.loc[summary["knob_name"] == "shock_scale", "direction_ok"].iloc[0]) is True
+    assert bool(summary.loc[summary["knob_name"] == "meta_order_scale", "direction_ok"].iloc[0]) is False
+
+
+def test_benchmark_logging_modes_shows_history_only_reduction() -> None:
+    frame = benchmark_logging_modes(preset="balanced", seed=11, steps=120)
+
+    assert set(frame["logging_mode"]) == {"full", "history_only"}
+    assert bool(frame.loc[frame["logging_mode"] == "full", "run_failed"].iloc[0]) is False
+    assert bool(frame.loc[frame["logging_mode"] == "history_only", "run_failed"].iloc[0]) is False
+    assert frame.loc[frame["logging_mode"] == "history_only", "logged_rows"].iloc[0] == 0
+
+
+def test_run_validation_pipeline_writes_final_artifacts(tmp_path: Path) -> None:
+    result = run_validation_pipeline(
+        outdir=tmp_path,
+        baseline_seeds=1,
+        baseline_steps=30,
+        sensitivity_seeds=1,
+        sensitivity_steps=20,
+        long_run_seeds=1,
+        long_run_steps=40,
+        jobs=1,
     )
-    sensitivity_runs = run_sensitivity_grid(
-        preset="balanced",
-        seeds=(1, 2),
-        steps=40,
-        knobs=("shock_scale",),
-        scales=(1.0, 1.2),
+
+    expected_files = {
+        "validation_summary.md",
+        "run_metrics.csv",
+        "preset_summary.csv",
+        "sensitivity_summary.csv",
+        "invariant_failures.csv",
+        "acceptance_decision.md",
+    }
+    assert expected_files <= {path.name for path in tmp_path.iterdir() if path.is_file()}
+    assert {path.name for path in result.diagnostics_paths.values()} == {
+        "diagnostics_balanced_1.png",
+        "diagnostics_trend_1.png",
+        "diagnostics_volatile_1.png",
+    }
+
+
+def test_decision_engine_mappings_use_new_performance_gate() -> None:
+    run_metrics = pd.DataFrame(
+        [
+            {
+                "stage": "baseline",
+                "preset": "balanced",
+                "seed": 1,
+                "realized_vol": 0.0100,
+                "mean_spread": 0.0200,
+                "trade_sign_acf1": 0.050,
+                "events_per_step": 30.0,
+                "abs_return_acf1": 0.10,
+                "imbalance_next_mid_return_corr": 0.10,
+                "spread_unique_count": 4.0,
+                "phase_spread_range": 0.01,
+                "phase_fill_range": 10.0,
+                "buy_event_count_acf1": 0.2,
+                "cancel_event_count_acf1": 0.2,
+                "shock_to_calm_ratio": 1.2,
+                "meta_active_directional_ratio": 0.3,
+                "meta_inactive_directional_ratio": 0.1,
+                "steps_per_second": 500.0,
+                "peak_memory_mb": 400.0,
+                "bytes_per_logged_event": 120.0,
+                "run_failed": False,
+                "memory_growth_without_recovery": True,
+            },
+            {
+                "stage": "baseline",
+                "preset": "trend",
+                "seed": 1,
+                "realized_vol": 0.0120,
+                "mean_spread": 0.0220,
+                "trade_sign_acf1": 0.090,
+                "events_per_step": 45.0,
+                "abs_return_acf1": 0.12,
+                "imbalance_next_mid_return_corr": 0.11,
+                "spread_unique_count": 6.0,
+                "phase_spread_range": 0.02,
+                "phase_fill_range": 20.0,
+                "buy_event_count_acf1": 0.3,
+                "cancel_event_count_acf1": 0.3,
+                "shock_to_calm_ratio": 1.3,
+                "meta_active_directional_ratio": 0.5,
+                "meta_inactive_directional_ratio": 0.1,
+                "steps_per_second": 350.0,
+                "peak_memory_mb": 700.0,
+                "bytes_per_logged_event": 180.0,
+                "run_failed": False,
+                "memory_growth_without_recovery": True,
+            },
+            {
+                "stage": "baseline",
+                "preset": "volatile",
+                "seed": 1,
+                "realized_vol": 0.0200,
+                "mean_spread": 0.0300,
+                "trade_sign_acf1": 0.070,
+                "events_per_step": 60.0,
+                "abs_return_acf1": 0.09,
+                "imbalance_next_mid_return_corr": 0.14,
+                "spread_unique_count": 5.0,
+                "phase_spread_range": 0.015,
+                "phase_fill_range": 15.0,
+                "buy_event_count_acf1": 0.2,
+                "cancel_event_count_acf1": 0.2,
+                "shock_to_calm_ratio": 1.4,
+                "meta_active_directional_ratio": 0.25,
+                "meta_inactive_directional_ratio": 0.1,
+                "steps_per_second": 300.0,
+                "peak_memory_mb": 900.0,
+                "bytes_per_logged_event": 190.0,
+                "run_failed": False,
+                "memory_growth_without_recovery": True,
+            },
+            {
+                "stage": "soak",
+                "preset": "balanced",
+                "seed": 1,
+                "realized_vol": 0.0100,
+                "mean_spread": 0.0200,
+                "trade_sign_acf1": 0.050,
+                "events_per_step": 30.0,
+                "abs_return_acf1": 0.10,
+                "imbalance_next_mid_return_corr": 0.10,
+                "spread_unique_count": 4.0,
+                "phase_spread_range": 0.01,
+                "phase_fill_range": 10.0,
+                "buy_event_count_acf1": 0.2,
+                "cancel_event_count_acf1": 0.2,
+                "shock_to_calm_ratio": 1.2,
+                "meta_active_directional_ratio": 0.3,
+                "meta_inactive_directional_ratio": 0.1,
+                "steps_per_second": 480.0,
+                "peak_memory_mb": 1800.0,
+                "bytes_per_logged_event": 150.0,
+                "run_failed": False,
+                "memory_growth_without_recovery": True,
+            },
+            {
+                "stage": "soak",
+                "preset": "trend",
+                "seed": 1,
+                "realized_vol": 0.0120,
+                "mean_spread": 0.0220,
+                "trade_sign_acf1": 0.090,
+                "events_per_step": 45.0,
+                "abs_return_acf1": 0.12,
+                "imbalance_next_mid_return_corr": 0.11,
+                "spread_unique_count": 6.0,
+                "phase_spread_range": 0.02,
+                "phase_fill_range": 20.0,
+                "buy_event_count_acf1": 0.3,
+                "cancel_event_count_acf1": 0.3,
+                "shock_to_calm_ratio": 1.3,
+                "meta_active_directional_ratio": 0.5,
+                "meta_inactive_directional_ratio": 0.1,
+                "steps_per_second": 320.0,
+                "peak_memory_mb": 2500.0,
+                "bytes_per_logged_event": 200.0,
+                "run_failed": False,
+                "memory_growth_without_recovery": True,
+            },
+            {
+                "stage": "soak",
+                "preset": "volatile",
+                "seed": 1,
+                "realized_vol": 0.0200,
+                "mean_spread": 0.0300,
+                "trade_sign_acf1": 0.070,
+                "events_per_step": 60.0,
+                "abs_return_acf1": 0.09,
+                "imbalance_next_mid_return_corr": 0.14,
+                "spread_unique_count": 5.0,
+                "phase_spread_range": 0.015,
+                "phase_fill_range": 15.0,
+                "buy_event_count_acf1": 0.2,
+                "cancel_event_count_acf1": 0.2,
+                "shock_to_calm_ratio": 1.4,
+                "meta_active_directional_ratio": 0.25,
+                "meta_inactive_directional_ratio": 0.1,
+                "steps_per_second": 280.0,
+                "peak_memory_mb": 3000.0,
+                "bytes_per_logged_event": 210.0,
+                "run_failed": False,
+                "memory_growth_without_recovery": True,
+            },
+        ]
     )
-    sensitivity_summary = summarize_sensitivity_grid(sensitivity_runs)
-    verdict = evaluate_validation_results(
+    preset_summary = pd.DataFrame(
+        [
+            {
+                "stage": "baseline",
+                "preset": "balanced",
+                "runs": 1,
+                "run_failures": 0,
+                "memory_growth_failures": 1,
+                "mean_spread_mean": 0.0200,
+                "realized_vol_mean": 0.0100,
+                "trade_sign_acf1_mean": 0.050,
+                "events_per_step_mean": 30.0,
+                "abs_return_acf1_mean": 0.10,
+                "imbalance_next_mid_return_corr_mean": 0.10,
+                "spread_unique_count_mean": 4.0,
+                "phase_spread_range_mean": 0.01,
+                "phase_fill_range_mean": 10.0,
+                "buy_event_count_acf1_mean": 0.2,
+                "cancel_event_count_acf1_mean": 0.2,
+                "shock_to_calm_ratio_mean": 1.2,
+                "meta_active_directional_ratio_mean": 0.3,
+                "meta_inactive_directional_ratio_mean": 0.1,
+                "steps_per_second_mean": 500.0,
+                "peak_memory_mb_mean": 400.0,
+                "bytes_per_logged_event_mean": 120.0,
+            },
+            {
+                "stage": "baseline",
+                "preset": "trend",
+                "runs": 1,
+                "run_failures": 0,
+                "memory_growth_failures": 1,
+                "mean_spread_mean": 0.0220,
+                "realized_vol_mean": 0.0120,
+                "trade_sign_acf1_mean": 0.090,
+                "events_per_step_mean": 45.0,
+                "abs_return_acf1_mean": 0.12,
+                "imbalance_next_mid_return_corr_mean": 0.11,
+                "spread_unique_count_mean": 6.0,
+                "phase_spread_range_mean": 0.02,
+                "phase_fill_range_mean": 20.0,
+                "buy_event_count_acf1_mean": 0.3,
+                "cancel_event_count_acf1_mean": 0.3,
+                "shock_to_calm_ratio_mean": 1.3,
+                "meta_active_directional_ratio_mean": 0.5,
+                "meta_inactive_directional_ratio_mean": 0.1,
+                "steps_per_second_mean": 350.0,
+                "peak_memory_mb_mean": 700.0,
+                "bytes_per_logged_event_mean": 180.0,
+            },
+            {
+                "stage": "baseline",
+                "preset": "volatile",
+                "runs": 1,
+                "run_failures": 0,
+                "memory_growth_failures": 1,
+                "mean_spread_mean": 0.0300,
+                "realized_vol_mean": 0.0200,
+                "trade_sign_acf1_mean": 0.070,
+                "events_per_step_mean": 60.0,
+                "abs_return_acf1_mean": 0.09,
+                "imbalance_next_mid_return_corr_mean": 0.14,
+                "spread_unique_count_mean": 5.0,
+                "phase_spread_range_mean": 0.015,
+                "phase_fill_range_mean": 15.0,
+                "buy_event_count_acf1_mean": 0.2,
+                "cancel_event_count_acf1_mean": 0.2,
+                "shock_to_calm_ratio_mean": 1.4,
+                "meta_active_directional_ratio_mean": 0.25,
+                "meta_inactive_directional_ratio_mean": 0.1,
+                "steps_per_second_mean": 300.0,
+                "peak_memory_mb_mean": 900.0,
+                "bytes_per_logged_event_mean": 190.0,
+            },
+            {
+                "stage": "soak",
+                "preset": "balanced",
+                "runs": 1,
+                "run_failures": 0,
+                "memory_growth_failures": 1,
+                "mean_spread_mean": 0.0200,
+                "realized_vol_mean": 0.0100,
+                "trade_sign_acf1_mean": 0.050,
+                "events_per_step_mean": 30.0,
+                "abs_return_acf1_mean": 0.10,
+                "imbalance_next_mid_return_corr_mean": 0.10,
+                "spread_unique_count_mean": 4.0,
+                "phase_spread_range_mean": 0.01,
+                "phase_fill_range_mean": 10.0,
+                "buy_event_count_acf1_mean": 0.2,
+                "cancel_event_count_acf1_mean": 0.2,
+                "shock_to_calm_ratio_mean": 1.2,
+                "meta_active_directional_ratio_mean": 0.3,
+                "meta_inactive_directional_ratio_mean": 0.1,
+                "steps_per_second_mean": 480.0,
+                "peak_memory_mb_mean": 1800.0,
+                "bytes_per_logged_event_mean": 150.0,
+            },
+            {
+                "stage": "soak",
+                "preset": "trend",
+                "runs": 1,
+                "run_failures": 0,
+                "memory_growth_failures": 1,
+                "mean_spread_mean": 0.0220,
+                "realized_vol_mean": 0.0120,
+                "trade_sign_acf1_mean": 0.090,
+                "events_per_step_mean": 45.0,
+                "abs_return_acf1_mean": 0.12,
+                "imbalance_next_mid_return_corr_mean": 0.11,
+                "spread_unique_count_mean": 6.0,
+                "phase_spread_range_mean": 0.02,
+                "phase_fill_range_mean": 20.0,
+                "buy_event_count_acf1_mean": 0.3,
+                "cancel_event_count_acf1_mean": 0.3,
+                "shock_to_calm_ratio_mean": 1.3,
+                "meta_active_directional_ratio_mean": 0.5,
+                "meta_inactive_directional_ratio_mean": 0.1,
+                "steps_per_second_mean": 320.0,
+                "peak_memory_mb_mean": 2500.0,
+                "bytes_per_logged_event_mean": 200.0,
+            },
+            {
+                "stage": "soak",
+                "preset": "volatile",
+                "runs": 1,
+                "run_failures": 0,
+                "memory_growth_failures": 1,
+                "mean_spread_mean": 0.0300,
+                "realized_vol_mean": 0.0200,
+                "trade_sign_acf1_mean": 0.070,
+                "events_per_step_mean": 60.0,
+                "abs_return_acf1_mean": 0.09,
+                "imbalance_next_mid_return_corr_mean": 0.14,
+                "spread_unique_count_mean": 5.0,
+                "phase_spread_range_mean": 0.015,
+                "phase_fill_range_mean": 15.0,
+                "buy_event_count_acf1_mean": 0.2,
+                "cancel_event_count_acf1_mean": 0.2,
+                "shock_to_calm_ratio_mean": 1.4,
+                "meta_active_directional_ratio_mean": 0.25,
+                "meta_inactive_directional_ratio_mean": 0.1,
+                "steps_per_second_mean": 280.0,
+                "peak_memory_mb_mean": 3000.0,
+                "bytes_per_logged_event_mean": 210.0,
+            },
+        ]
+    )
+    reproducibility = pd.DataFrame(
+        [
+            {
+                "preset": "balanced",
+                "all_reproducible": True,
+            },
+            {
+                "preset": "trend",
+                "all_reproducible": True,
+            },
+            {
+                "preset": "volatile",
+                "all_reproducible": True,
+            },
+        ]
+    )
+    sensitivity_summary = pd.DataFrame(
+        [
+            {"knob_name": "limit_rate_scale", "direction_ok": True},
+            {"knob_name": "market_rate_scale", "direction_ok": True},
+            {"knob_name": "cancel_rate_scale", "direction_ok": True},
+            {"knob_name": "fair_price_vol_scale", "direction_ok": True},
+            {"knob_name": "regime_transition_scale", "direction_ok": True},
+            {"knob_name": "seasonality_scale", "direction_ok": True},
+            {"knob_name": "excitation_scale", "direction_ok": True},
+            {"knob_name": "meta_order_scale", "direction_ok": True},
+            {"knob_name": "shock_scale", "direction_ok": True},
+        ]
+    )
+
+    acceptance = evaluate_validation_results(
         run_metrics=run_metrics,
-        preset_summary=summary,
+        preset_summary=preset_summary,
         reproducibility=reproducibility,
         sensitivity_summary=sensitivity_summary,
+        invariant_failures=pd.DataFrame(columns=["preset", "seed", "stage", "step", "event_idx", "invariant_name", "details"]),
     )
 
-    assert len(sensitivity_summary) == 2
-    assert verdict["adoption"] in {"YES", "CONDITIONAL", "NO"}
-    assert "major_strengths" in verdict
-    assert "major_weaknesses" in verdict
+    assert acceptance["performance_ok"] is True
+    assert acceptance["decision"] in {"GO", "CONDITIONAL"}

@@ -58,6 +58,8 @@ Market(
 
 `trade_strength`는 execution-only signed imbalance입니다. 실제 aggressor buy/sell 체결량의 EWMA로 계산되며, quote-only 변화로는 바뀌지 않습니다.
 
+`config={"logging_mode": "history_only"}`를 쓰면 snapshot과 compact history는 그대로 유지되지만, event/debug API는 의도적으로 비활성화됩니다.
+
 ### `get_history() -> pandas.DataFrame`
 
 초기 시드 상태부터 현재 step까지의 compact history를 반환합니다.
@@ -109,6 +111,8 @@ Market(
 
 이 로그는 샘플링된 의도 이벤트가 아니라 실제로 적용된 이벤트만 기록합니다. `market` 행의 `fills`에는 전체 sweep 경로가 `(price, qty)` 튜플 리스트로 들어갑니다.
 
+이 메서드는 `logging_mode="full"`에서만 동작하며, `history_only`에서는 `RuntimeError`를 발생시킵니다.
+
 ### `get_debug_history() -> pandas.DataFrame`
 
 event-aligned latent debug stream을 반환합니다.
@@ -129,6 +133,8 @@ event-aligned latent debug stream을 반환합니다.
 - `shock_state`
 
 `get_debug_history()`는 `get_event_history()`와 같은 `step`, `event_idx` 키를 공유합니다. 기본 사용 흐름보다는 고급 검증과 diagnostics용 API입니다.
+
+이 메서드는 `logging_mode="full"`에서만 동작하며, `history_only`에서는 `RuntimeError`를 발생시킵니다.
 
 ### `plot(*, levels: int | None = None, title: str | None = None, figsize: tuple[float, float] | None = None) -> matplotlib.figure.Figure`
 
@@ -158,6 +164,7 @@ event-aligned latent debug stream을 반환합니다.
 - regime / shock occupancy
 
 이 메서드는 최소 두 개 이상의 history row가 필요합니다.
+또한 `logging_mode="full"`에서만 동작하며, `history_only`에서는 `RuntimeError`를 발생시킵니다.
 
 ## `orderwave.config.MarketConfig`
 
@@ -181,5 +188,6 @@ from orderwave.config import MarketConfig
 - `excitation_scale`
 - `meta_order_scale`
 - `shock_scale`
+- `logging_mode`
 
 `Market`에 전달하는 `config`는 `MarketConfig` 인스턴스나 같은 키를 가진 `dict` 둘 다 가능합니다.

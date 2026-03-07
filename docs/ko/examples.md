@@ -67,6 +67,19 @@ print(joined[["step", "event_idx", "event_type", "participant_type", "meta_order
 
 `get_debug_history()`는 고급 검증용 뷰입니다. 얇은 public event log에는 숨은 원인 라벨을 넣지 않되, participant mix, burst state, meta-order progress, shock state는 별도 테이블에서 감사 가능하게 유지합니다.
 
+## Compact history-only 실행
+
+```python
+fast_market = Market(seed=11, config={"preset": "balanced", "logging_mode": "history_only"})
+fast_market.gen(steps=20_000)
+
+summary = fast_market.get_history()
+figure = fast_market.plot(title="Compact overview")
+figure.savefig("orderwave-history-only.png")
+```
+
+`history_only`는 compact history, visible-book plotting, trade strength만 필요할 때 쓰는 경량 모드입니다. 이 모드에서는 `get_event_history()`, `get_debug_history()`, `plot_diagnostics()`가 의도적으로 `RuntimeError`를 발생시킵니다.
+
 ## CLI 예제
 
 저장소에는 [`examples/plot_market_heatmap.py`](https://github.com/smturtle2/quoteflow/blob/main/examples/plot_market_heatmap.py) 예제가 있고, 이제 내부적으로 `Market.plot()`을 직접 호출합니다.
@@ -91,19 +104,21 @@ python benchmarks/benchmark.py --steps 5000 --preset balanced
 
 ## 검증 스윕
 
-단일 throughput 측정이 아니라 multi-seed 검증 계획 전체를 실행하려면 validation runner를 사용하면 됩니다.
+단일 throughput 측정이 아니라 synthetic market-state 검증 파이프라인 전체를 실행하려면 validation runner를 사용하면 됩니다.
 
 ```bash
-python scripts/validate_orderwave.py --steps 10000 --seeds 20 --outdir artifacts/validation
+python scripts/validate_orderwave.py --baseline-steps 20000 --baseline-seeds 20 --jobs 4 --outdir artifacts/validation
 ```
 
 runner는 다음 산출물을 생성합니다.
 
-- `validation-runs.csv`
-- `validation-summary.csv`
-- `validation-reproducibility.csv`
-- `report.md`
-- preset 요약 PNG와 representative diagnostics PNG
+- `validation_summary.md`
+- `run_metrics.csv`
+- `preset_summary.csv`
+- `sensitivity_summary.csv`
+- `invariant_failures.csv`
+- `acceptance_decision.md`
+- `diagnostics_<preset>_<seed>.png`
 
 ## Preset 비교
 

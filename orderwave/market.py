@@ -35,13 +35,7 @@ from orderwave.model import (
     update_resiliency_state,
 )
 from orderwave.utils import EPSILON, coerce_quantity, price_to_tick, tick_to_price
-from orderwave.visualization import (
-    VisualHistoryRow,
-    capture_visual_history_row,
-    plot_market_diagnostics,
-    plot_market_overview,
-    plot_order_book,
-)
+from orderwave.visualization import plot_market_diagnostics, plot_market_overview, plot_order_book
 
 if TYPE_CHECKING:
     from matplotlib.figure import Figure
@@ -86,10 +80,15 @@ class Market:
         self._rng = np.random.default_rng(seed)
         self.config = coerce_config(config, self.levels)
         self._params = preset_params(self.config.preset)
+        self._fallback_liquidity_qty = coerce_quantity(math.exp(self._params.limit_qty_log_mean))
+        self._minimum_visible_levels = min(self.levels, 3)
 
         self._book = OrderBook(self.tick_size)
-        self._history = HistoryBuffer()
-        self._visual_history: list[VisualHistoryRow] = []
+        self._history = HistoryBuffer(
+            logging_mode=self.config.logging_mode,
+            visual_depth=self.config.book_buffer_levels,
+        )
+        self._visual_history = self._history.visual_store
         self._step = 0
 
         init_tick = price_to_tick(init_price, self.tick_size)
@@ -137,7 +136,7 @@ class Market:
         self._trade_ema_alpha = 2.0 / (self.config.flow_window + 1.0)
 
         self._seed_initial_book(init_tick)
-        self._record_current_state()
+        self._record_current_state(features=self._compute_features())
 
     def _step_impl(self) -> None:
         previous_features = self._compute_features()
@@ -247,7 +246,7 @@ class Market:
         self._mid_returns.append(current_features.mid_price - previous_mid_price)
 
         self._step += 1
-        self._record_current_state()
+        self._record_current_state(features=current_features)
 
     def step(self) -> dict[str, object]:
         """Advance the simulator by one micro-batch."""
@@ -277,11 +276,13 @@ class Market:
     def get_event_history(self) -> pd.DataFrame:
         """Return the applied event log recorded so far."""
 
+        self._require_full_logging("event/debug logging is disabled; use logging_mode='full'")
         return self._history.event_dataframe()
 
     def get_debug_history(self) -> pd.DataFrame:
         """Return the event-aligned latent debug history."""
 
+        self._require_full_logging("event/debug logging is disabled; use logging_mode='full'")
         return self._history.debug_dataframe()
 
     def plot(
@@ -330,6 +331,7 @@ class Market:
     ) -> Figure:
         """Render realism-oriented diagnostics for the simulated path."""
 
+        self._require_full_logging("event/debug logging is disabled; use logging_mode='full'")
         return plot_market_diagnostics(
             self.get_history(),
             self.get_event_history(),
@@ -403,24 +405,27 @@ class Market:
                 fill_qty=0.0,
                 event_state=event_state,
             )
-            event_row = self._build_event_row(
-                event_idx=event_idx,
-                event_type="limit",
-                side=event["side"],
-                level=event["level"],
-                price=tick_to_price(applied_tick, self.tick_size),
-                requested_qty=event["qty"],
-                applied_qty=event["qty"],
-                fill_qty=0.0,
-                fills=[],
-                mid_price_after=event_state["mid_price"],
+            self._history.record_event(
+                self._step + 1,
+                event_idx,
+                self._day,
+                self._session_step,
+                self._session_phase,
+                "limit",
+                event["side"],
+                event["level"],
+                tick_to_price(applied_tick, self.tick_size),
+                event["qty"],
+                event["qty"],
+                0.0,
+                (),
+                tick_to_price(self._book.best_bid_tick, self.tick_size),
+                tick_to_price(self._book.best_ask_tick, self.tick_size),
+                event_state["mid_price"],
+                self._last_trade_price,
+                self._regime,
             )
-            debug_row = self._build_debug_row(
-                event_idx=event_idx,
-                event=event,
-            )
-            self._history.record_event(event_row)
-            self._history.record_debug(debug_row)
+            self._record_debug_event(event_idx, event)
             return {"side": event["side"], "fill_qty": 0.0}
 
         if event_type == "market":
@@ -441,27 +446,31 @@ class Market:
                 fill_qty=result.filled_qty,
                 event_state=event_state,
             )
-            event_row = self._build_event_row(
-                event_idx=event_idx,
-                event_type="market",
-                side=event["side"],
-                level=None,
-                price=tick_to_price(result.last_fill_tick, self.tick_size),
-                requested_qty=event["qty"],
-                applied_qty=result.filled_qty,
-                fill_qty=result.filled_qty,
-                fills=[
-                    (tick_to_price(fill_tick, self.tick_size), float(fill_qty))
-                    for fill_tick, fill_qty in result.fills
-                ],
-                mid_price_after=event_state["mid_price"],
+            fills = tuple(
+                (tick_to_price(fill_tick, self.tick_size), float(fill_qty))
+                for fill_tick, fill_qty in result.fills
             )
-            debug_row = self._build_debug_row(
-                event_idx=event_idx,
-                event=event,
+            self._history.record_event(
+                self._step + 1,
+                event_idx,
+                self._day,
+                self._session_step,
+                self._session_phase,
+                "market",
+                event["side"],
+                None,
+                tick_to_price(result.last_fill_tick, self.tick_size),
+                event["qty"],
+                result.filled_qty,
+                result.filled_qty,
+                fills,
+                tick_to_price(self._book.best_bid_tick, self.tick_size),
+                tick_to_price(self._book.best_ask_tick, self.tick_size),
+                event_state["mid_price"],
+                self._last_trade_price,
+                self._regime,
             )
-            self._history.record_event(event_row)
-            self._history.record_debug(debug_row)
+            self._record_debug_event(event_idx, event)
             return {"side": event["side"], "fill_qty": float(result.filled_qty)}
 
         canceled_qty = self._book.cancel_level(event["side"], event["tick"], event["qty"])
@@ -477,24 +486,27 @@ class Market:
             fill_qty=0.0,
             event_state=event_state,
         )
-        event_row = self._build_event_row(
-            event_idx=event_idx,
-            event_type="cancel",
-            side=event["side"],
-            level=event.get("level"),
-            price=tick_to_price(event["tick"], self.tick_size),
-            requested_qty=event["qty"],
-            applied_qty=canceled_qty,
-            fill_qty=0.0,
-            fills=[],
-            mid_price_after=event_state["mid_price"],
+        self._history.record_event(
+            self._step + 1,
+            event_idx,
+            self._day,
+            self._session_step,
+            self._session_phase,
+            "cancel",
+            event["side"],
+            event.get("level"),
+            tick_to_price(event["tick"], self.tick_size),
+            event["qty"],
+            canceled_qty,
+            0.0,
+            (),
+            tick_to_price(self._book.best_bid_tick, self.tick_size),
+            tick_to_price(self._book.best_ask_tick, self.tick_size),
+            event_state["mid_price"],
+            self._last_trade_price,
+            self._regime,
         )
-        debug_row = self._build_debug_row(
-            event_idx=event_idx,
-            event=event,
-        )
-        self._history.record_event(event_row)
-        self._history.record_debug(debug_row)
+        self._record_debug_event(event_idx, event)
         return {"side": event["side"], "fill_qty": 0.0}
 
     def _advance_session_clock(self) -> None:
@@ -513,20 +525,19 @@ class Market:
         )
 
     def _ensure_visible_depth(self) -> None:
-        minimum_levels = min(self.levels, 3)
-        target_qty = coerce_quantity(math.exp(self._params.limit_qty_log_mean))
+        minimum_levels = self._minimum_visible_levels
+        target_qty = self._fallback_liquidity_qty
         for side in ("bid", "ask"):
             current_levels = len(self._book.top_levels(side, minimum_levels))
             for level in range(current_levels, minimum_levels):
                 self._book.apply_limit_relative(side, level, target_qty)
 
     def _ensure_liquidity(self) -> None:
-        fallback_qty = coerce_quantity(math.exp(self._params.limit_qty_log_mean))
-        self._ensure_two_sided_book(fallback_qty=fallback_qty)
+        self._ensure_two_sided_book(fallback_qty=self._fallback_liquidity_qty)
         self._ensure_visible_depth()
 
     def _ensure_two_sided_book(self, *, fallback_qty: int | None = None) -> None:
-        fallback_qty = coerce_quantity(math.exp(self._params.limit_qty_log_mean)) if fallback_qty is None else fallback_qty
+        fallback_qty = self._fallback_liquidity_qty if fallback_qty is None else fallback_qty
         if self._book.best_bid_tick is None:
             reference_tick = math.floor(self._hidden_fair_tick) - 1
             if self._book.best_ask_tick is not None:
@@ -637,10 +648,7 @@ class Market:
         )
 
     def _compute_event_state(self) -> dict[str, float]:
-        best_bid_qty = self._book.best_qty("bid")
-        best_ask_qty = self._book.best_qty("ask")
-        bid_depth = float(sum(qty for _, qty in self._book.top_levels("bid", self.levels)))
-        ask_depth = float(sum(qty for _, qty in self._book.top_levels("ask", self.levels)))
+        best_bid_qty, best_ask_qty, bid_depth, ask_depth = self._book.top_depth_state(self.levels)
         mid_price = tick_to_price((self._book.best_bid_tick + self._book.best_ask_tick) / 2.0, self.tick_size)
         depth_imbalance = (bid_depth - ask_depth) / max(bid_depth + ask_depth, EPSILON)
         return {
@@ -651,9 +659,15 @@ class Market:
             "best_ask_qty": float(best_ask_qty),
         }
 
-    def _record_current_state(self) -> None:
-        features = self._compute_features()
-        snapshot = self._build_snapshot(features)
+    def _record_current_state(self, *, features: MarketFeatures | None = None) -> None:
+        features = self._compute_features() if features is None else features
+        full_bid_levels = self._book.top_levels("bid", self.config.book_buffer_levels)
+        full_ask_levels = self._book.top_levels("ask", self.config.book_buffer_levels)
+        snapshot = self._build_snapshot(
+            features,
+            bid_levels=full_bid_levels[: self.levels],
+            ask_levels=full_ask_levels[: self.levels],
+        )
         self._history.record(
             snapshot,
             top_n_bid_qty=features.top_bid_depth,
@@ -661,12 +675,10 @@ class Market:
             realized_vol=features.realized_vol,
             signed_flow=features.signed_flow,
         )
-        self._visual_history.append(
-            capture_visual_history_row(
-                self._book,
-                step=self._step,
-                depth=self.config.book_buffer_levels,
-            )
+        self._history.record_visual(
+            step=self._step,
+            bid_levels=full_bid_levels,
+            ask_levels=full_ask_levels,
         )
 
     def _resolve_plot_levels(self, levels: int | None) -> int:
@@ -675,7 +687,17 @@ class Market:
             raise ValueError("levels must be positive")
         return min(resolved, self.config.book_buffer_levels)
 
-    def _build_snapshot(self, features: MarketFeatures) -> dict[str, object]:
+    def _require_full_logging(self, message: str) -> None:
+        if self.config.logging_mode != "full":
+            raise RuntimeError(message)
+
+    def _build_snapshot(
+        self,
+        features: MarketFeatures,
+        *,
+        bid_levels: list[tuple[int, int]],
+        ask_levels: list[tuple[int, int]],
+    ) -> dict[str, object]:
         return {
             "step": self._step,
             "day": self._day,
@@ -689,11 +711,11 @@ class Market:
             "spread": features.spread_price,
             "bids": [
                 {"price": tick_to_price(tick, self.tick_size), "qty": float(qty)}
-                for tick, qty in self._book.top_levels("bid", self.levels)
+                for tick, qty in bid_levels
             ],
             "asks": [
                 {"price": tick_to_price(tick, self.tick_size), "qty": float(qty)}
-                for tick, qty in self._book.top_levels("ask", self.levels)
+                for tick, qty in ask_levels
             ],
             "last_trade_side": self._last_trade_side,
             "last_trade_qty": float(self._last_trade_qty),
@@ -704,50 +726,10 @@ class Market:
             "regime": self._regime,
         }
 
-    def _build_event_row(
-        self,
-        *,
-        event_idx: int,
-        event_type: str,
-        side: str,
-        level: int | None,
-        price: float,
-        requested_qty: int,
-        applied_qty: int | float,
-        fill_qty: int | float,
-        fills: list[tuple[float, float]],
-        mid_price_after: float,
-    ) -> tuple[object, ...]:
-        return (
-            self._step + 1,
-            event_idx,
-            self._day,
-            self._session_step,
-            self._session_phase,
-            event_type,
-            side,
-            level,
-            float(price),
-            float(requested_qty),
-            float(applied_qty),
-            float(fill_qty),
-            list(fills),
-            tick_to_price(self._book.best_bid_tick, self.tick_size),
-            tick_to_price(self._book.best_ask_tick, self.tick_size),
-            float(mid_price_after),
-            float(self._last_trade_price),
-            self._regime,
-        )
-
-    def _build_debug_row(
-        self,
-        *,
-        event_idx: int,
-        event: dict[str, object],
-    ) -> tuple[object, ...]:
+    def _record_debug_event(self, event_idx: int, event: dict[str, object]) -> None:
         meta_side = event.get("meta_order_side")
         meta_order = self._meta_orders.get(meta_side) if meta_side in {"buy", "sell"} else None
-        return (
+        self._history.record_debug(
             self._step + 1,
             event_idx,
             self._day,

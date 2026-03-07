@@ -57,6 +57,15 @@ print(debug.tail())
 overview.savefig("orderwave-overview.png")
 ```
 
+For lighter long runs where you only need summary history, visible book snapshots, and trade strength:
+
+```python
+fast_market = Market(seed=7, config={"preset": "balanced", "logging_mode": "history_only"})
+fast_market.gen(steps=10_000)
+summary = fast_market.get_history()
+figure = fast_market.plot()
+```
+
 ## Benchmark
 
 The repository benchmark reports both throughput and micro-batch realism metrics.
@@ -73,11 +82,21 @@ Expected output includes:
 
 ## Validation Sweep
 
-The repository also includes a longer-form validation runner that summarizes preset separation, seed stability, invariants, and knob sensitivity into CSV, PNG, and markdown artifacts.
+The repository also includes a longer-form validation runner that executes the full synthetic market-state validation plan: baseline preset sweeps, knob sensitivity, reproducibility checks, and long-run soak tests.
 
 ```bash
-python scripts/validate_orderwave.py --steps 10000 --seeds 20 --outdir artifacts/validation
+python scripts/validate_orderwave.py --baseline-steps 20000 --baseline-seeds 20 --jobs 4 --outdir artifacts/validation
 ```
+
+The runner writes:
+
+- `validation_summary.md`
+- `run_metrics.csv`
+- `preset_summary.csv`
+- `sensitivity_summary.csv`
+- `invariant_failures.csv`
+- `acceptance_decision.md`
+- `diagnostics_<preset>_<seed>.png`
 
 ## API Surface
 
@@ -94,6 +113,8 @@ python scripts/validate_orderwave.py --steps 10000 --seeds 20 --outdir artifacts
 | `plot_diagnostics()` | Render session, excitation, imbalance, spread/volatility, resiliency, and occupancy diagnostics |
 
 Advanced configuration is available through `orderwave.config.MarketConfig`.
+
+`logging_mode="history_only"` keeps summary history plus overview/book plotting data, but disables `get_event_history()`, `get_debug_history()`, and `plot_diagnostics()`.
 
 ## Built-in Visualization
 

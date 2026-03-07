@@ -67,6 +67,19 @@ print(joined[["step", "event_idx", "event_type", "participant_type", "meta_order
 
 `get_debug_history()` is the advanced inspection view. It keeps latent driver labels out of the thin public event log while still making participant mix, burst state, meta-order progress, and shock state auditable.
 
+## Compact History-Only Runs
+
+```python
+fast_market = Market(seed=11, config={"preset": "balanced", "logging_mode": "history_only"})
+fast_market.gen(steps=20_000)
+
+summary = fast_market.get_history()
+figure = fast_market.plot(title="Compact overview")
+figure.savefig("orderwave-history-only.png")
+```
+
+`history_only` mode is the lighter option for long sweeps when you only need compact history, visible-book plotting, and trade strength. In this mode, `get_event_history()`, `get_debug_history()`, and `plot_diagnostics()` intentionally raise `RuntimeError`.
+
 ## CLI Example
 
 The repository includes [`examples/plot_market_heatmap.py`](https://github.com/smturtle2/quoteflow/blob/main/examples/plot_market_heatmap.py), which calls `Market.plot()` directly.
@@ -91,19 +104,21 @@ The script reports:
 
 ## Validation Sweep
 
-Use the validation runner when you want the full multi-seed experiment plan rather than a single throughput snapshot.
+Use the validation runner when you want the full synthetic market-state validation pipeline rather than a single throughput snapshot.
 
 ```bash
-python scripts/validate_orderwave.py --steps 10000 --seeds 20 --outdir artifacts/validation
+python scripts/validate_orderwave.py --baseline-steps 20000 --baseline-seeds 20 --jobs 4 --outdir artifacts/validation
 ```
 
 The runner writes:
 
-- `validation-runs.csv`
-- `validation-summary.csv`
-- `validation-reproducibility.csv`
-- `report.md`
-- preset-level PNG summaries and representative diagnostics plots
+- `validation_summary.md`
+- `run_metrics.csv`
+- `preset_summary.csv`
+- `sensitivity_summary.csv`
+- `invariant_failures.csv`
+- `acceptance_decision.md`
+- `diagnostics_<preset>_<seed>.png`
 
 ## Preset Comparison
 

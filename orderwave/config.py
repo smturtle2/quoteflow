@@ -7,6 +7,7 @@ from typing import Literal, Mapping
 
 PresetName = Literal["balanced", "trend", "volatile"]
 RegimeName = Literal["calm", "directional", "stressed"]
+LoggingMode = Literal["full", "history_only"]
 
 REGIME_NAMES: tuple[RegimeName, ...] = ("calm", "directional", "stressed")
 PRESET_NAMES: tuple[PresetName, ...] = ("balanced", "trend", "volatile")
@@ -52,6 +53,10 @@ class MarketConfig:
         Strength of latent directional meta-order spawning and persistence.
     shock_scale:
         Strength of exogenous shock spawning and impact.
+    logging_mode:
+        Logging level for stored simulator history. ``"full"`` retains
+        summary, event, debug, and plot history. ``"history_only"`` keeps
+        summary and plot history only.
     """
 
     preset: PresetName = "balanced"
@@ -68,6 +73,7 @@ class MarketConfig:
     excitation_scale: float = 1.0
     meta_order_scale: float = 1.0
     shock_scale: float = 1.0
+    logging_mode: LoggingMode = "full"
 
 
 @dataclass(frozen=True)
@@ -352,6 +358,8 @@ def coerce_config(config: MarketConfig | Mapping[str, object] | None, levels: in
 
     if market_config.preset not in PRESET_NAMES:
         raise ValueError(f"unsupported preset: {market_config.preset}")
+    if market_config.logging_mode not in ("full", "history_only"):
+        raise ValueError(f"unsupported logging_mode: {market_config.logging_mode}")
     if levels <= 0:
         raise ValueError("levels must be positive")
 

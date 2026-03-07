@@ -166,6 +166,17 @@ class OrderBook:
     def total_depth(self, side: BookSide, depth: int) -> int:
         return sum(qty for _, qty in self.top_levels(side, depth))
 
+    def top_depth_state(self, depth: int) -> tuple[int, int, int, int]:
+        if depth <= 0:
+            return self.best_qty("bid"), self.best_qty("ask"), 0, 0
+        bid_total = 0
+        ask_total = 0
+        for tick in sorted(self.bid_book, reverse=True)[:depth]:
+            bid_total += int(self.bid_book[tick])
+        for tick in sorted(self.ask_book)[:depth]:
+            ask_total += int(self.ask_book[tick])
+        return self.best_qty("bid"), self.best_qty("ask"), bid_total, ask_total
+
     def level_age(self, side: BookSide, tick: int) -> int:
         _, staleness = self._book_and_age(side)
         return int(staleness.get(tick, 0))

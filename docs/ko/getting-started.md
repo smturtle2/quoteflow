@@ -29,6 +29,15 @@ debug = market.get_debug_history()
 figure = market.plot()
 ```
 
+compact history와 overview/book plot만 필요한 장기 실행이라면:
+
+```python
+fast_market = Market(seed=7, config={"preset": "balanced", "logging_mode": "history_only"})
+fast_market.gen(steps=10_000)
+summary = fast_market.get_history()
+overview = fast_market.plot()
+```
+
 ## 생성자
 
 ```python
@@ -46,6 +55,7 @@ Market(
 - `levels`: `get()`이 반환하는 visible depth이자 기본 plot depth
 - `seed`: 재현 가능한 난수 시드
 - `config`: `dict` 또는 `orderwave.config.MarketConfig`
+- `config["logging_mode"]`: `"full"` 또는 `"history_only"`
 
 ## 내장 플롯
 
@@ -58,6 +68,7 @@ diagnostics = market.plot_diagnostics()
 - `plot()`은 가격, 스프레드, 체결 강도, signed visible-book heatmap을 렌더링합니다
 - `plot_book()`은 현재 order book을 실제 가격축으로 렌더링합니다
 - `plot_diagnostics()`는 session profile, market-flow excitation, imbalance lead, spread-volatility coupling, resiliency, regime/shock occupancy를 렌더링합니다
+- `plot_diagnostics()`는 `logging_mode="full"`에서만 동작합니다
 
 모든 plotting 메서드는 `matplotlib.figure.Figure`를 반환합니다. 저장이나 표시 시점은 사용자가 직접 제어합니다.
 
@@ -81,6 +92,7 @@ diagnostics = market.plot_diagnostics()
 
 - `get_event_history()`는 실제 적용된 event stream만 반환합니다
 - `get_debug_history()`는 같은 `step`, `event_idx` 키로 participant type, meta-order progress, burst state, shock state를 반환합니다
+- `history_only` 모드는 `get_history()`, `plot()`, `plot_book()`은 유지하지만 `get_event_history()`, `get_debug_history()`, `plot_diagnostics()`는 비활성화합니다
 
 ## 재현성
 

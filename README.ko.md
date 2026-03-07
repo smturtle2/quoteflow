@@ -57,6 +57,15 @@ print(debug.tail())
 overview.savefig("orderwave-overview.png")
 ```
 
+가격 경로, visible book, 체결 강도만 필요하고 event/debug 로그가 불필요한 장기 실행이라면:
+
+```python
+fast_market = Market(seed=7, config={"preset": "balanced", "logging_mode": "history_only"})
+fast_market.gen(steps=10_000)
+summary = fast_market.get_history()
+figure = fast_market.plot()
+```
+
 ## 벤치마크
 
 저장소의 benchmark 스크립트는 처리량과 micro-batch 질감을 같이 출력합니다.
@@ -73,11 +82,21 @@ python benchmarks/benchmark.py --steps 5000 --preset balanced
 
 ## 검증 스윕
 
-장기 검증용 runner도 포함되어 있습니다. preset 분리, seed 안정성, 불변식, knob 민감도를 CSV/PNG/markdown 산출물로 정리합니다.
+장기 검증용 runner도 포함되어 있습니다. baseline preset sweep, knob sensitivity, 재현성, long-run soak까지 포함한 synthetic market-state 검증 파이프라인을 실행합니다.
 
 ```bash
-python scripts/validate_orderwave.py --steps 10000 --seeds 20 --outdir artifacts/validation
+python scripts/validate_orderwave.py --baseline-steps 20000 --baseline-seeds 20 --jobs 4 --outdir artifacts/validation
 ```
+
+runner는 다음 산출물을 생성합니다.
+
+- `validation_summary.md`
+- `run_metrics.csv`
+- `preset_summary.csv`
+- `sensitivity_summary.csv`
+- `invariant_failures.csv`
+- `acceptance_decision.md`
+- `diagnostics_<preset>_<seed>.png`
 
 ## API 표면
 
@@ -94,6 +113,8 @@ python scripts/validate_orderwave.py --steps 10000 --seeds 20 --outdir artifacts
 | `plot_diagnostics()` | session, excitation, imbalance, spread/volatility, resiliency, occupancy diagnostics 렌더 |
 
 고급 설정은 `orderwave.config.MarketConfig`를 통해 사용할 수 있습니다.
+
+`logging_mode="history_only"`를 쓰면 summary history와 overview/book plotting 데이터만 남기고, `get_event_history()`, `get_debug_history()`, `plot_diagnostics()`는 `RuntimeError`를 발생시킵니다.
 
 ## 내장 시각화
 

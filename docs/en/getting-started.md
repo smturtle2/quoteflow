@@ -29,6 +29,15 @@ debug = market.get_debug_history()
 figure = market.plot()
 ```
 
+For lighter runs where you only need compact history plus overview/book plots:
+
+```python
+fast_market = Market(seed=7, config={"preset": "balanced", "logging_mode": "history_only"})
+fast_market.gen(steps=10_000)
+summary = fast_market.get_history()
+overview = fast_market.plot()
+```
+
 ## Constructor
 
 ```python
@@ -46,6 +55,7 @@ Market(
 - `levels`: visible depth returned by `get()` and default plot depth
 - `seed`: deterministic random seed
 - `config`: `dict` or `orderwave.config.MarketConfig`
+- `config["logging_mode"]`: `"full"` or `"history_only"`
 
 ## Built-in Plots
 
@@ -58,6 +68,7 @@ diagnostics = market.plot_diagnostics()
 - `plot()` renders price, spread, trade strength, and a signed visible-book heatmap
 - `plot_book()` renders the current order book on a real price axis
 - `plot_diagnostics()` renders session profile, market-flow excitation, imbalance lead, spread-volatility coupling, resiliency, and regime or shock occupancy
+- `plot_diagnostics()` requires `logging_mode="full"`
 
 Every plotting method returns a `matplotlib.figure.Figure`. Saving or displaying the figure stays under user control.
 
@@ -81,6 +92,7 @@ The current state returned by `get()` is intentionally compact.
 
 - `get_event_history()` returns the applied event stream only
 - `get_debug_history()` returns participant type, meta-order progress, burst state, and shock state aligned to the same `step` and `event_idx` keys
+- `history_only` mode keeps `get_history()`, `plot()`, and `plot_book()`, but disables `get_event_history()`, `get_debug_history()`, and `plot_diagnostics()`
 
 ## Reproducibility
 

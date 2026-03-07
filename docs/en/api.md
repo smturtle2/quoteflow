@@ -58,6 +58,8 @@ Snapshot fields:
 
 `trade_strength` is an execution-only signed imbalance. It is computed from an EWMA of realized aggressor buy and sell volume, so quote-only book changes do not alter it.
 
+If `config={"logging_mode": "history_only"}` is used, snapshot and compact history remain available, but event/debug APIs are intentionally disabled.
+
 ### `get_history() -> pandas.DataFrame`
 
 Return compact history from the initial seeded book through the current step.
@@ -109,6 +111,8 @@ Columns:
 
 The log records applied events only. `market` rows include a `fills` list of `(price, qty)` tuples covering the full sweep path.
 
+This method requires `logging_mode="full"` and raises `RuntimeError` in `history_only` mode.
+
 ### `get_debug_history() -> pandas.DataFrame`
 
 Return the event-aligned latent debug stream.
@@ -129,6 +133,8 @@ Columns:
 - `shock_state`
 
 `get_debug_history()` shares the same `step` and `event_idx` keys as `get_event_history()`. It is intended for advanced inspection and diagnostics rather than the default user workflow.
+
+This method requires `logging_mode="full"` and raises `RuntimeError` in `history_only` mode.
 
 ### `plot(*, levels: int | None = None, title: str | None = None, figsize: tuple[float, float] | None = None) -> matplotlib.figure.Figure`
 
@@ -158,6 +164,7 @@ Render a 3x2 diagnostics figure with:
 - regime and shock occupancy
 
 This method requires at least two recorded history rows.
+It also requires `logging_mode="full"` and raises `RuntimeError` in `history_only` mode.
 
 ## `orderwave.config.MarketConfig`
 
@@ -181,5 +188,6 @@ from orderwave.config import MarketConfig
 - `excitation_scale`
 - `meta_order_scale`
 - `shock_scale`
+- `logging_mode`
 
 `config` passed to `Market` can be either a `MarketConfig` instance or a plain mapping with the same keys.

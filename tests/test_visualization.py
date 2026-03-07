@@ -60,6 +60,16 @@ def test_plot_diagnostics_requires_at_least_two_rows() -> None:
         market.plot_diagnostics()
 
 
+def test_history_only_mode_keeps_overview_and_book_plots_but_blocks_diagnostics() -> None:
+    market = Market(seed=9, config={"preset": "balanced", "logging_mode": "history_only"})
+    market.gen(steps=20)
+
+    assert isinstance(market.plot(), Figure)
+    assert isinstance(market.plot_book(), Figure)
+    with pytest.raises(RuntimeError, match="logging_mode='full'"):
+        market.plot_diagnostics()
+
+
 def test_depth_heatmap_order_and_missing_levels_are_preserved() -> None:
     rows = [
         VisualHistoryRow(
