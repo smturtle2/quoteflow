@@ -9,7 +9,7 @@ PyPI publishing is driven by [`workflow.yml`](https://github.com/smturtle2/quote
 1. Update `version` in `pyproject.toml`
 2. Commit and push to `main`
 3. Open GitHub `Releases`
-4. Draft a new release with a tag like `v0.4.1`
+4. Draft a new release with a tag like `vX.Y.Z`
 5. Publish the release
 6. Wait for the GitHub Actions workflow to test, build, and publish
 
