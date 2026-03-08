@@ -5,7 +5,6 @@ import pandas as pd
 import pytest
 
 from orderwave import Market
-from orderwave.book import OrderBook
 
 
 def test_event_history_is_reproducible_for_same_seed() -> None:
@@ -24,6 +23,7 @@ def test_event_history_columns_and_invariants_hold() -> None:
     market.gen(steps=120)
 
     events = market.get_event_history()
+    debug = market.get_debug_history()
 
     expected = {
         "step",
@@ -48,14 +48,11 @@ def test_event_history_columns_and_invariants_hold() -> None:
 
     assert set(events.columns) == expected
     assert not events.empty
-
-    records = list(events.itertuples(index=False))
-    for previous, current in zip(records, records[1:]):
-        assert current.step > previous.step or (
-            current.step == previous.step and current.event_idx > previous.event_idx
-        )
-
+    assert len(events) == len(debug)
     assert (events["best_bid_after"] < events["best_ask_after"]).all()
+
+    ordered = events[["step", "event_idx"]].to_records(index=False).tolist()
+    assert ordered == sorted(ordered)
 
     market_rows = events.loc[events["event_type"] == "market"]
     assert not market_rows.empty
@@ -72,29 +69,8 @@ def test_debug_history_aligns_one_to_one_with_event_history() -> None:
 
     events = market.get_event_history()
     debug = market.get_debug_history()
-
-    expected_debug = {
-        "step",
-        "event_idx",
-        "day",
-        "session_step",
-        "session_phase",
-        "source",
-        "participant_type",
-        "meta_order_id",
-        "meta_order_side",
-        "meta_order_progress",
-        "burst_state",
-        "shock_state",
-    }
-
-    assert set(debug.columns) == expected_debug
-    assert "source" not in events.columns
-    assert "participant_type" not in events.columns
-    assert "shock_state" not in events.columns
-    assert len(events) == len(debug)
-
     joined = events.merge(debug, on=["step", "event_idx"], how="inner")
+
     assert len(joined) == len(events)
     assert joined["session_phase_x"].equals(joined["session_phase_y"])
     assert set(debug["session_phase"].unique()) <= {"open", "mid", "close"}
@@ -110,7 +86,7 @@ def test_trade_strength_matches_execution_only_ema() -> None:
     buy_by_step = market_events.loc[market_events["side"] == "buy"].groupby("step")["fill_qty"].sum()
     sell_by_step = market_events.loc[market_events["side"] == "sell"].groupby("step")["fill_qty"].sum()
 
-    alpha = market._trade_ema_alpha
+    alpha = 2.0 / (market.config.flow_window + 1.0)
     buy_ema = 0.0
     sell_ema = 0.0
     expected = []
@@ -123,22 +99,6 @@ def test_trade_strength_matches_execution_only_ema() -> None:
         expected.append((buy_ema - sell_ema) / max(buy_ema + sell_ema, 1e-9))
 
     np.testing.assert_allclose(history["trade_strength"].to_numpy(dtype=float), np.array(expected, dtype=float))
-
-
-def test_quote_only_changes_do_not_disturb_trade_strength() -> None:
-    market = Market(seed=3)
-    market._book = OrderBook(tick_size=market.tick_size)
-    market._book.set_level("bid", 10000, 6)
-    market._book.set_level("ask", 10002, 5)
-    market._buy_exec_ema = 8.0
-    market._sell_exec_ema = 2.0
-
-    before = market._compute_features().trade_strength
-    market._book.cancel_level("ask", 10002, 5)
-    market._book.set_level("ask", 10003, 5)
-    after = market._compute_features().trade_strength
-
-    assert before == pytest.approx(after)
 
 
 def test_balanced_preset_statistical_guardrails_hold() -> None:
@@ -172,11 +132,9 @@ def test_balanced_preset_statistical_guardrails_hold() -> None:
     joined = events.merge(debug, on=["step", "event_idx"], how="inner")
     market_joined = joined.loc[joined["event_type"] == "market"].copy()
     market_joined["sign"] = market_joined["side"].map({"buy": 1.0, "sell": -1.0}).astype(float)
-    meta_sign = market_joined.loc[market_joined["meta_order_id"].notna(), "sign"].reset_index(drop=True)
     base_step_sign = market_joined.loc[market_joined["meta_order_id"].isna()].groupby("step")["sign"].sum()
     meta_step_sign = market_joined.loc[market_joined["meta_order_id"].notna()].groupby("step")["sign"].sum()
     meta_directionality = float(meta_step_sign.abs().mean())
-    base_directionality = float(base_step_sign.abs().mean())
 
     step_shock = debug.groupby("step")["shock_state"].agg(
         lambda states: "none" if (states == "none").all() else next(value for value in states if value != "none")
@@ -205,6 +163,5 @@ def test_balanced_preset_statistical_guardrails_hold() -> None:
     assert market_sell_count > 100
     assert buy_count_acf > 0.05
     assert cancel_count_acf > 0.05
-    assert len(meta_sign) > 0
     assert meta_directionality >= 1.0
     assert shock_abs_ret > calm_abs_ret

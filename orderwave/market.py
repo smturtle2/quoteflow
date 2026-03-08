@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING, Mapping
 import numpy as np
 import pandas as pd
 
+from orderwave._model.backstop import apply_liquidity_backstop, ensure_two_sided_book, ensure_visible_depth
+from orderwave._model.events import AppliedEventResult, EventLogRecord, StepEvent, build_debug_event_record
 from orderwave.book import OrderBook
 from orderwave.config import MarketConfig, RegimeName, coerce_config, preset_params
 from orderwave.history import HistoryBuffer
@@ -240,7 +242,7 @@ class Market:
             hidden_fair_tick=self._hidden_fair_tick,
         )
 
-    def sample_step_events(self, step_state: StepState) -> list[dict[str, object]]:
+    def sample_step_events(self, step_state: StepState) -> list[StepEvent]:
         sampled_events = sample_participant_events(
             book=self._book,
             features=step_state.previous_features,
@@ -256,7 +258,7 @@ class Market:
             sampled_events = [sampled_events[index] for index in order]
         return sampled_events
 
-    def apply_step_events(self, sampled_events: list[dict[str, object]]) -> StepOutcome:
+    def apply_step_events(self, sampled_events: list[StepEvent]) -> StepOutcome:
         step_buy_volume = 0.0
         step_sell_volume = 0.0
         event_idx = 0
@@ -425,14 +427,10 @@ class Market:
 
         self._ensure_visible_depth()
 
-    def _apply_event(self, event: dict[str, object], *, event_idx: int) -> dict[str, object] | None:
-        event_type = event["type"]
+    def _apply_event(self, event: StepEvent, *, event_idx: int) -> AppliedEventResult | None:
+        event_type = event["event_type"]
         if event_type == "limit":
-            applied_tick = self._book.apply_limit_relative(
-                event["side"],
-                event["level"],
-                event["qty"],
-            )
+            applied_tick = self._book.apply_limit_relative(event["side"], event["level"], event["qty"])
             if applied_tick is None:
                 return None
             self._ensure_two_sided_book()
@@ -445,25 +443,19 @@ class Market:
                 fill_qty=0.0,
                 event_state=event_state,
             )
-            self._history.record_event(
-                self._step + 1,
-                event_idx,
-                self._day,
-                self._session_step,
-                self._session_phase,
-                "limit",
-                event["side"],
-                event["level"],
-                tick_to_price(applied_tick, self.tick_size),
-                event["qty"],
-                event["qty"],
-                0.0,
-                (),
-                tick_to_price(self._book.best_bid_tick, self.tick_size),
-                tick_to_price(self._book.best_ask_tick, self.tick_size),
-                event_state["mid_price"],
-                self._last_trade_price,
-                self._regime,
+            self._record_applied_event(
+                event_idx=event_idx,
+                record={
+                    "event_type": "limit",
+                    "side": event["side"],
+                    "level": event["level"],
+                    "price": tick_to_price(applied_tick, self.tick_size),
+                    "requested_qty": float(event["qty"]),
+                    "applied_qty": float(event["qty"]),
+                    "fill_qty": 0.0,
+                    "fills": (),
+                },
+                event_state=event_state,
             )
             self._record_debug_event(event_idx, event)
             return {"side": event["side"], "fill_qty": 0.0}
@@ -475,7 +467,7 @@ class Market:
             self._last_trade_price = tick_to_price(result.last_fill_tick, self.tick_size)
             self._last_trade_side = event["side"]
             self._last_trade_qty = float(result.filled_qty)
-            self._consume_meta_order(event.get("meta_order_side"), result.filled_qty)
+            self._consume_meta_order(event["meta_order_side"], result.filled_qty)
             self._ensure_two_sided_book()
             event_state = self._compute_event_state()
             self._update_after_event_state(
@@ -490,25 +482,19 @@ class Market:
                 (tick_to_price(fill_tick, self.tick_size), float(fill_qty))
                 for fill_tick, fill_qty in result.fills
             )
-            self._history.record_event(
-                self._step + 1,
-                event_idx,
-                self._day,
-                self._session_step,
-                self._session_phase,
-                "market",
-                event["side"],
-                None,
-                tick_to_price(result.last_fill_tick, self.tick_size),
-                event["qty"],
-                result.filled_qty,
-                result.filled_qty,
-                fills,
-                tick_to_price(self._book.best_bid_tick, self.tick_size),
-                tick_to_price(self._book.best_ask_tick, self.tick_size),
-                event_state["mid_price"],
-                self._last_trade_price,
-                self._regime,
+            self._record_applied_event(
+                event_idx=event_idx,
+                record={
+                    "event_type": "market",
+                    "side": event["side"],
+                    "level": None,
+                    "price": tick_to_price(result.last_fill_tick, self.tick_size),
+                    "requested_qty": float(event["qty"]),
+                    "applied_qty": float(result.filled_qty),
+                    "fill_qty": float(result.filled_qty),
+                    "fills": fills,
+                },
+                event_state=event_state,
             )
             self._record_debug_event(event_idx, event)
             return {"side": event["side"], "fill_qty": float(result.filled_qty)}
@@ -526,25 +512,19 @@ class Market:
             fill_qty=0.0,
             event_state=event_state,
         )
-        self._history.record_event(
-            self._step + 1,
-            event_idx,
-            self._day,
-            self._session_step,
-            self._session_phase,
-            "cancel",
-            event["side"],
-            event.get("level"),
-            tick_to_price(event["tick"], self.tick_size),
-            event["qty"],
-            canceled_qty,
-            0.0,
-            (),
-            tick_to_price(self._book.best_bid_tick, self.tick_size),
-            tick_to_price(self._book.best_ask_tick, self.tick_size),
-            event_state["mid_price"],
-            self._last_trade_price,
-            self._regime,
+        self._record_applied_event(
+            event_idx=event_idx,
+            record={
+                "event_type": "cancel",
+                "side": event["side"],
+                "level": event["level"],
+                "price": tick_to_price(event["tick"], self.tick_size),
+                "requested_qty": float(event["qty"]),
+                "applied_qty": float(canceled_qty),
+                "fill_qty": 0.0,
+                "fills": (),
+            },
+            event_state=event_state,
         )
         self._record_debug_event(event_idx, event)
         return {"side": event["side"], "fill_qty": 0.0}
@@ -565,38 +545,27 @@ class Market:
         )
 
     def _ensure_visible_depth(self) -> None:
-        minimum_levels = self._minimum_visible_levels
-        target_qty = self._fallback_liquidity_qty
-        for side in ("bid", "ask"):
-            current_levels = len(self._book.top_levels(side, minimum_levels))
-            for level in range(current_levels, minimum_levels):
-                self._book.apply_limit_relative(side, level, target_qty)
+        ensure_visible_depth(
+            book=self._book,
+            minimum_visible_levels=self._minimum_visible_levels,
+            fallback_qty=self._fallback_liquidity_qty,
+        )
 
     def _ensure_liquidity(self) -> None:
-        if self.config.liquidity_backstop == "off":
-            return
-        if self.config.liquidity_backstop == "on_empty":
-            if self._book.best_bid_tick is None or self._book.best_ask_tick is None:
-                self._ensure_two_sided_book(fallback_qty=self._fallback_liquidity_qty)
-            return
-        self._ensure_two_sided_book(fallback_qty=self._fallback_liquidity_qty)
-        self._ensure_visible_depth()
+        apply_liquidity_backstop(
+            book=self._book,
+            mode=self.config.liquidity_backstop,
+            minimum_visible_levels=self._minimum_visible_levels,
+            fallback_qty=self._fallback_liquidity_qty,
+            hidden_fair_tick=self._hidden_fair_tick,
+        )
 
     def _ensure_two_sided_book(self, *, fallback_qty: int | None = None) -> None:
-        fallback_qty = self._fallback_liquidity_qty if fallback_qty is None else fallback_qty
-        if self._book.best_bid_tick is None:
-            reference_tick = math.floor(self._hidden_fair_tick) - 1
-            if self._book.best_ask_tick is not None:
-                reference_tick = min(reference_tick, self._book.best_ask_tick - 1)
-            anchor_tick = max(0, int(reference_tick))
-            self._book.add_limit("bid", anchor_tick, fallback_qty)
-
-        if self._book.best_ask_tick is None:
-            reference_tick = math.ceil(self._hidden_fair_tick) + 1
-            if self._book.best_bid_tick is not None:
-                reference_tick = max(reference_tick, self._book.best_bid_tick + 1)
-            anchor_tick = int(reference_tick)
-            self._book.add_limit("ask", anchor_tick, fallback_qty)
+        ensure_two_sided_book(
+            book=self._book,
+            hidden_fair_tick=self._hidden_fair_tick,
+            fallback_qty=self._fallback_liquidity_qty if fallback_qty is None else fallback_qty,
+        )
 
     def _consume_meta_order(self, meta_order_side: str | None, filled_qty: float) -> None:
         if meta_order_side not in {"buy", "sell"}:
@@ -772,8 +741,37 @@ class Market:
             "regime": self._regime,
         }
 
-    def _record_debug_event(self, event_idx: int, event: dict[str, object]) -> None:
-        meta_side = event.get("meta_order_side")
+    def _record_applied_event(
+        self,
+        *,
+        event_idx: int,
+        record: EventLogRecord,
+        event_state: dict[str, float],
+    ) -> None:
+        self._history.record_event(
+            self._step + 1,
+            event_idx,
+            self._day,
+            self._session_step,
+            self._session_phase,
+            record["event_type"],
+            record["side"],
+            record["level"],
+            record["price"],
+            record["requested_qty"],
+            record["applied_qty"],
+            record["fill_qty"],
+            record["fills"],
+            tick_to_price(self._book.best_bid_tick, self.tick_size),
+            tick_to_price(self._book.best_ask_tick, self.tick_size),
+            event_state["mid_price"],
+            self._last_trade_price,
+            self._regime,
+        )
+
+    def _record_debug_event(self, event_idx: int, event: StepEvent) -> None:
+        debug_event = build_debug_event_record(event)
+        meta_side = debug_event["meta_order_side"]
         meta_order = self._meta_orders.get(meta_side) if meta_side in {"buy", "sell"} else None
         self._history.record_debug(
             self._step + 1,
@@ -781,9 +779,9 @@ class Market:
             self._day,
             self._session_step,
             self._session_phase,
-            event.get("source", "organic"),
-            event.get("participant_type"),
-            event.get("meta_order_id"),
+            debug_event["source"],
+            debug_event["participant_type"],
+            debug_event["meta_order_id"],
             meta_side,
             meta_order_progress(meta_order),
             self._burst_state,

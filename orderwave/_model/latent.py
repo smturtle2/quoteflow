@@ -125,8 +125,8 @@ def advance_hidden_volatility(
     target *= (0.9 + 0.1 * seasonality) * shock_boost
 
     vol_noise_scale = 0.9 + (0.08 * math.sqrt(clamp(config.fair_price_vol_scale, 0.5, 2.5)))
-    next_hidden_vol = hidden_vol + (params.hidden_vol_reversion * (target - hidden_vol))
-    next_hidden_vol += params.hidden_vol_vol * vol_noise_scale * rng.normal()
+    next_hidden_vol = hidden_vol + (params.latent.hidden_vol_reversion * (target - hidden_vol))
+    next_hidden_vol += params.latent.hidden_vol_vol * vol_noise_scale * rng.normal()
     return float(clamp(next_hidden_vol, 0.08, 3.0))
 
 
@@ -210,8 +210,8 @@ def advance_hidden_fair_state(
         + (0.25 * context.directional_anchor)
         + (0.3 * max(profile.fair_drift, 0.0) * slow_state_signal)
     )
-    slow_noise = params.slow_fair_vol * fair_noise_scale * (0.3 + (0.35 * context.hidden_vol)) * rng.normal()
-    next_slow = slow_component + params.fair_mean_reversion * (slow_target - slow_component)
+    slow_noise = params.latent.slow_fair_vol * fair_noise_scale * (0.3 + (0.35 * context.hidden_vol)) * rng.normal()
+    next_slow = slow_component + params.latent.fair_mean_reversion * (slow_target - slow_component)
     next_slow += profile.fair_drift * slow_target
     next_slow += slow_noise
 
@@ -226,15 +226,15 @@ def advance_hidden_fair_state(
         + (0.02 * fast_state_signal)
         - 0.03 * context.imbalance_displacement
     )
-    fast_noise = params.fast_fair_vol * fair_noise_scale * max(0.35, math.sqrt(context.hidden_vol)) * rng.normal()
-    next_fast = fast_component + params.fast_fair_reversion * (fast_target - fast_component) + fast_noise
+    fast_noise = params.latent.fast_fair_vol * fair_noise_scale * max(0.35, math.sqrt(context.hidden_vol)) * rng.normal()
+    next_fast = fast_component + params.latent.fast_fair_reversion * (fast_target - fast_component) + fast_noise
 
     next_jump = jump_component * 0.45
     if context.shock is not None and context.shock.name == "fair_jump":
         jump_sign = 1.0 if context.shock.side == "buy" else -1.0
         next_jump += jump_sign * context.shock.intensity * jump_amp_scale * (0.6 + 0.1 * rng.normal())
-    elif rng.random() < clamp(params.fair_jump_prob * jump_prob_scale, 0.0, 0.2):
-        next_jump += rng.normal(0.0, params.fair_jump_scale * jump_amp_scale * 0.55)
+    elif rng.random() < clamp(params.latent.fair_jump_prob * jump_prob_scale, 0.0, 0.2):
+        next_jump += rng.normal(0.0, params.latent.fair_jump_scale * jump_amp_scale * 0.55)
 
     return float(next_slow), float(next_fast), float(next_jump)
 
@@ -245,7 +245,7 @@ def decay_excitation(
     config: MarketConfig,
     params: PresetParams,
 ) -> dict[str, float]:
-    decay = clamp(params.excitation_decay, 0.35, 0.98)
+    decay = clamp(params.latent.excitation_decay, 0.35, 0.98)
     effective_decay = clamp(decay + (0.04 * (config.excitation_scale - 1.0)), 0.25, 0.995)
     return {key: float(value) * effective_decay for key, value in excitation.items()}
 
@@ -301,7 +301,7 @@ def advance_meta_orders(
         + (0.6 * context.directional_anchor)
     )
     regime_scale = {"calm": 0.7, "directional": 1.15, "stressed": 0.95}[regime]
-    spawn_scale = params.meta_spawn_prob * config.meta_order_scale * context.seasonality["meta"] * regime_scale
+    spawn_scale = params.meta.meta_spawn_prob * config.meta_order_scale * context.seasonality["meta"] * regime_scale
     if context.shock is not None and context.shock.name == "one_sided_taker_surge":
         spawn_scale *= 1.15
 
@@ -329,11 +329,11 @@ def advance_meta_orders(
         spawn_prob = clamp(spawn_prob, 0.0, 0.12)
         if rng.random() >= spawn_prob:
             continue
-        qty = max(8.0, rng.lognormal(params.meta_qty_log_mean, params.meta_qty_log_sigma))
+        qty = max(8.0, rng.lognormal(params.meta.meta_qty_log_mean, params.meta.meta_qty_log_sigma))
         qty *= 1.0 + (0.14 * scale_bias)
         urgency = float(clamp(0.55 + (0.62 * directional_push) + (0.14 * rng.normal()), 0.4, 1.4))
         urgency *= 1.0 + (0.08 * scale_bias)
-        base_duration = max(6, int(rng.poisson(params.meta_duration_mean) + 4))
+        base_duration = max(6, int(rng.poisson(params.meta.meta_duration_mean) + 4))
         decay_half_life = max(6, int(base_duration * (1.0 + (0.16 * scale_bias))))
         updated[side] = MetaOrderState(
             id=next_meta_order_id,
@@ -364,13 +364,13 @@ def advance_shock_state(
         return replace(current_shock, remaining_steps=current_shock.remaining_steps - 1)
 
     regime_scale = {"calm": 0.65, "directional": 1.0, "stressed": 1.4}[regime]
-    spawn_prob = params.shock_spawn_prob * config.shock_scale * context.seasonality["shock"] * regime_scale
+    spawn_prob = params.shock.shock_spawn_prob * config.shock_scale * context.seasonality["shock"] * regime_scale
     spawn_prob *= 0.7 + (0.3 * clamp(context.hidden_vol, 0.0, 2.0))
     if rng.random() >= clamp(spawn_prob, 0.0, 0.18):
         return None
 
     shock_name = rng.choice(SHOCK_NAMES, p=np.array([0.24, 0.26, 0.26, 0.24], dtype=float))
-    duration = max(3, int(rng.poisson(params.shock_duration_mean) + 2))
+    duration = max(3, int(rng.poisson(params.shock.shock_duration_mean) + 2))
     intensity = float(clamp(0.55 + (0.3 * rng.random()) + (0.12 * context.hidden_vol), 0.45, 1.8))
     side = None
     if shock_name in {"fair_jump", "one_sided_taker_surge"}:
@@ -437,14 +437,14 @@ def update_resiliency_state(
     best_ask_qty: int,
     params: PresetParams,
 ) -> tuple[float, float, float, float]:
-    target_best_qty = max(1.0, math.exp(params.limit_qty_log_mean) * seasonality_depth)
+    target_best_qty = max(1.0, math.exp(params.qty.limit_qty_log_mean) * seasonality_depth)
     best_bid_deficit = max(target_best_qty - best_bid_qty, 0.0) / target_best_qty
     best_ask_deficit = max(target_best_qty - best_ask_qty, 0.0) / target_best_qty
-    spread_excess = max(spread_ticks - params.initial_spread_ticks, 0.0)
+    spread_excess = max(spread_ticks - params.shape.initial_spread_ticks, 0.0)
     imbalance_target = _meta_signal(meta_orders)
     imbalance_displacement = abs(depth_imbalance - imbalance_target)
 
-    decay = math.exp(-1.0 / max(params.resiliency_half_life, 1.0))
+    decay = math.exp(-1.0 / max(params.resiliency.resiliency_half_life, 1.0))
     if shock is not None and shock.name == "liquidity_drought":
         decay = min(0.985, decay + 0.08)
     if any(meta_orders.values()):

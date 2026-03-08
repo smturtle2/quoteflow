@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Literal, Mapping, Sequence
+from typing import Literal, Mapping, Sequence
 
 import numpy as np
 
@@ -11,6 +11,7 @@ from orderwave.metrics import MarketFeatures
 from orderwave.utils import clipped_exp, coerce_quantity
 
 from .latent import _bounded_signal, _meta_signal, meta_order_progress
+from .events import StepEvent, make_cancel_event, make_limit_event, make_market_event
 from .scoring import (
     _aggregate_cancel_side_weight,
     _aggregate_limit_side_weight,
@@ -35,8 +36,8 @@ def sample_participant_events(
     rng: np.random.Generator,
     config: MarketConfig,
     params: PresetParams,
-) -> list[dict[str, Any]]:
-    events: list[dict[str, Any]] = []
+) -> list[StepEvent]:
+    events: list[StepEvent] = []
     limit_budget = _sample_event_budget("limit", regime=regime, context=context, config=config, params=params, rng=rng)
     market_budget = _sample_event_budget("market", regime=regime, context=context, config=config, params=params, rng=rng)
     cancel_budget = _sample_event_budget("cancel", regime=regime, context=context, config=config, params=params, rng=rng)
@@ -173,16 +174,16 @@ def _sample_event_budget(
     rng: np.random.Generator,
 ) -> int:
     if event_type == "limit":
-        base = params.target_limit_events
+        base = params.budgets.target_limit_events
         multiplier = context.seasonality["limit"] * {"calm": 0.95, "directional": 1.05, "stressed": 0.9}[regime]
         multiplier *= 1.0 + (0.08 * (context.excitation["limit_bid_near"] + context.excitation["limit_ask_near"]))
         multiplier *= 1.0 + (0.12 * (context.best_depth_deficit_bid + context.best_depth_deficit_ask))
         if context.shock is not None and context.shock.name == "liquidity_drought":
             multiplier *= max(0.65, 1.0 - (0.18 * context.shock.intensity))
         scale = config.limit_rate_scale
-        hard_cap = int((params.target_limit_events * 3.0) + 8.0)
+        hard_cap = int((params.budgets.target_limit_events * 3.0) + 8.0)
     elif event_type == "market":
-        base = params.target_market_events
+        base = params.budgets.target_market_events
         multiplier = context.seasonality["market"] * {"calm": 0.9, "directional": 1.15, "stressed": 1.25}[regime]
         multiplier *= 1.0 + (0.12 * (context.excitation["market_buy"] + context.excitation["market_sell"]))
         multiplier *= 1.0 + (0.3 * abs(_meta_signal(context.meta_orders)) * (0.7 + (0.6 * config.meta_order_scale)))
@@ -192,9 +193,9 @@ def _sample_event_budget(
             elif context.shock.name == "vol_burst":
                 multiplier *= 1.0 + (0.1 * context.shock.intensity)
         scale = config.market_rate_scale
-        hard_cap = int((params.target_market_events * 4.0) + 6.0)
+        hard_cap = int((params.budgets.target_market_events * 4.0) + 6.0)
     else:
-        base = params.target_cancel_events
+        base = params.budgets.target_cancel_events
         multiplier = context.seasonality["cancel"] * {"calm": 0.95, "directional": 1.05, "stressed": 1.18}[regime]
         multiplier *= 1.0 + (0.1 * (context.excitation["cancel_bid_near"] + context.excitation["cancel_ask_near"]))
         multiplier *= 1.0 + (0.14 * context.hidden_vol)
@@ -204,7 +205,7 @@ def _sample_event_budget(
             elif context.shock.name == "vol_burst":
                 multiplier *= 1.0 + (0.12 * context.shock.intensity)
         scale = config.cancel_rate_scale
-        hard_cap = int((params.target_cancel_events * 2.5) + 10.0)
+        hard_cap = int((params.budgets.target_cancel_events * 2.5) + 10.0)
 
     lam = max(0.0, base * multiplier * scale)
     return int(min(hard_cap, rng.poisson(lam)))
@@ -302,8 +303,8 @@ def _sample_limit_budget_events(
     rng: np.random.Generator,
     config: MarketConfig,
     params: PresetParams,
-) -> list[dict[str, Any]]:
-    events: list[dict[str, Any]] = []
+) -> list[StepEvent]:
+    events: list[StepEvent] = []
     for participant_key, count in _allocate_counts(specs, total_events, rng=rng):
         participant_type, side = participant_key
         levels, probabilities = score_limit_levels(
@@ -325,22 +326,21 @@ def _sample_limit_budget_events(
 
         for level in chosen_levels:
             events.append(
-                {
-                    "type": "limit",
-                    "side": side,
-                    "level": int(level),
-                    "qty": _sample_limit_qty(
+                make_limit_event(
+                    side=side,
+                    level=int(level),
+                    qty=_sample_limit_qty(
                         participant_type,
                         side,
                         context=context,
                         rng=rng,
                         params=params,
                     ),
-                    "source": source,
-                    "participant_type": participant_type,
-                    "meta_order_id": meta_order.id if meta_order is not None else None,
-                    "meta_order_side": meta_order.side if meta_order is not None else None,
-                }
+                    source=source,
+                    participant_type=participant_type,
+                    meta_order_id=meta_order.id if meta_order is not None else None,
+                    meta_order_side=meta_order.side if meta_order is not None else None,
+                )
             )
     return events
 
@@ -354,8 +354,8 @@ def _sample_market_budget_events(
     context: EngineContext,
     rng: np.random.Generator,
     params: PresetParams,
-) -> list[dict[str, Any]]:
-    events: list[dict[str, Any]] = []
+) -> list[StepEvent]:
+    events: list[StepEvent] = []
     for participant_key, count in _allocate_counts(specs, total_events, rng=rng):
         participant_type, side = participant_key
         meta_order = context.meta_orders.get(side)
@@ -365,10 +365,9 @@ def _sample_market_budget_events(
 
         for _ in range(count):
             events.append(
-                {
-                    "type": "market",
-                    "side": side,
-                    "qty": _sample_market_qty(
+                make_market_event(
+                    side=side,
+                    qty=_sample_market_qty(
                         side,
                         participant_type,
                         features=features,
@@ -377,11 +376,11 @@ def _sample_market_budget_events(
                         rng=rng,
                         params=params,
                     ),
-                    "source": source,
-                    "participant_type": participant_type,
-                    "meta_order_id": meta_order.id if meta_order is not None else None,
-                    "meta_order_side": meta_order.side if meta_order is not None else None,
-                }
+                    source=source,
+                    participant_type=participant_type,
+                    meta_order_id=meta_order.id if meta_order is not None else None,
+                    meta_order_side=meta_order.side if meta_order is not None else None,
+                )
             )
     return events
 
@@ -396,8 +395,8 @@ def _sample_cancel_budget_events(
     context: EngineContext,
     rng: np.random.Generator,
     params: PresetParams,
-) -> list[dict[str, Any]]:
-    events: list[dict[str, Any]] = []
+) -> list[StepEvent]:
+    events: list[StepEvent] = []
     for participant_key, count in _allocate_counts(specs, total_events, rng=rng):
         participant_type, side = participant_key
         levels = book.all_levels(side)
@@ -434,17 +433,16 @@ def _sample_cancel_budget_events(
             if chunk <= 0:
                 continue
             events.append(
-                {
-                    "type": "cancel",
-                    "side": side,
-                    "level": int(chosen_index),
-                    "tick": tick,
-                    "qty": chunk,
-                    "source": source,
-                    "participant_type": participant_type,
-                    "meta_order_id": opposite_meta.id if opposite_meta is not None else None,
-                    "meta_order_side": opposite_meta.side if opposite_meta is not None else None,
-                }
+                make_cancel_event(
+                    side=side,
+                    level=int(chosen_index),
+                    tick=tick,
+                    qty=chunk,
+                    source=source,
+                    participant_type=participant_type,
+                    meta_order_id=opposite_meta.id if opposite_meta is not None else None,
+                    meta_order_side=opposite_meta.side if opposite_meta is not None else None,
+                )
             )
     return events
 
@@ -458,7 +456,7 @@ def _sample_limit_qty(
     params: PresetParams,
 ) -> int:
     profile = _participant_profile(participant_type)
-    qty = rng.lognormal(mean=params.limit_qty_log_mean + profile["qty_shift"], sigma=params.limit_qty_log_sigma)
+    qty = rng.lognormal(mean=params.qty.limit_qty_log_mean + profile["qty_shift"], sigma=params.qty.limit_qty_log_sigma)
     same_deficit = context.best_depth_deficit_bid if side == "bid" else context.best_depth_deficit_ask
     qty *= 1.0 + (0.45 * same_deficit * profile["replenish_weight"])
     if context.session_phase == "open":
@@ -482,7 +480,7 @@ def _sample_market_qty(
     fair_gap = hidden_fair_tick - features.mid_tick
     sign = 1.0 if aggressor_side == "buy" else -1.0
     directional_push = max(sign * fair_gap, 0.0)
-    qty = rng.lognormal(mean=params.market_qty_log_mean + profile["market_qty_shift"], sigma=params.market_qty_log_sigma)
+    qty = rng.lognormal(mean=params.qty.market_qty_log_mean + profile["market_qty_shift"], sigma=params.qty.market_qty_log_sigma)
     qty *= 1.0 + (0.12 * directional_push) + (0.26 * context.hidden_vol)
     meta_order = context.meta_orders[aggressor_side]
     if meta_order is not None:
@@ -501,8 +499,8 @@ def _sample_cancel_qty(
 ) -> int:
     profile = _participant_profile(participant_type)
     base = rng.lognormal(
-        mean=max(0.0, params.limit_qty_log_mean - 0.5 + profile["cancel_qty_shift"]),
-        sigma=max(0.2, params.limit_qty_log_sigma * 0.55),
+        mean=max(0.0, params.qty.limit_qty_log_mean - 0.5 + profile["cancel_qty_shift"]),
+        sigma=max(0.2, params.qty.limit_qty_log_sigma * 0.55),
     )
     chunk = min(current_qty, coerce_quantity(base))
     return int(max(chunk, 0))

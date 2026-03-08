@@ -60,12 +60,12 @@ def score_limit_levels(
         score -= shape["curvature"] * (distance**2)
         score += shape["hump"] * math.exp(hump)
         score += shape["wall"] * math.exp(wall)
-        score += 0.65 * side_sign * params.imbalance_weight * imbalance_signal * math.exp(-distance / params.imbalance_decay)
-        score += 0.65 * side_sign * params.fair_weight * fair_signal * math.exp(-distance / params.fair_decay)
-        score += 0.65 * side_sign * params.flow_weight * flow_signal * math.exp(-distance / params.flow_decay)
+        score += 0.65 * side_sign * params.shape.imbalance_weight * imbalance_signal * math.exp(-distance / params.shape.imbalance_decay)
+        score += 0.65 * side_sign * params.shape.fair_weight * fair_signal * math.exp(-distance / params.shape.fair_decay)
+        score += 0.65 * side_sign * params.shape.flow_weight * flow_signal * math.exp(-distance / params.shape.flow_decay)
         score += params.regimes[regime].limit_offset * profile["limit_bias"]
-        score -= params.stale_penalty * min(book.level_age(side, target_tick) / 10.0, 1.5)
-        score -= params.gap_penalty * max(distance - 4.0, 0.0)
+        score -= params.shape.stale_penalty * min(book.level_age(side, target_tick) / 10.0, 1.5)
+        score -= params.shape.gap_penalty * max(distance - 4.0, 0.0)
 
         if context is not None:
             same_deficit = context.best_depth_deficit_bid if side == "bid" else context.best_depth_deficit_ask
@@ -96,7 +96,7 @@ def score_limit_levels(
                 score += params.regimes[regime].inside_offset
         else:
             if level == -1:
-                score += params.inside_base_bonus * profile["inside_weight"]
+                score += params.shape.inside_base_bonus * profile["inside_weight"]
 
         scores[idx] = score
 
@@ -132,7 +132,7 @@ def _aggregate_limit_side_weight(
         + (0.025 * (same_trace - opposite_trace))
     )
 
-    log_weight = params.limit_base_log_intensity + params.regimes[regime].limit_offset
+    log_weight = params.flow.limit_base_log_intensity + params.regimes[regime].limit_offset
     log_weight += math.log(max(context.seasonality["limit"], 1e-6))
     log_weight += 0.12 * same_deficit
     log_weight += 0.05 * thinness
@@ -173,7 +173,7 @@ def _aggregate_market_side_weight(
         + (0.045 * trace_signal)
     )
 
-    log_weight = params.market_base_log_intensity + params.regimes[regime].market_offset
+    log_weight = params.flow.market_base_log_intensity + params.regimes[regime].market_offset
     log_weight += math.log(max(context.seasonality["market"], 1e-6))
     log_weight += sign * signed_pressure
     log_weight += 0.08 * context.hidden_vol
@@ -240,16 +240,16 @@ def _dynamic_shape_profile(
     fair_signal = _bounded_signal(hidden_fair_tick - features.mid_tick, scale=2.5)
     flow_signal = _bounded_signal(features.recent_flow_imbalance, scale=0.75)
     side_sign = 1.0 if side == "bid" else -1.0
-    slope = params.base_shape_linear + profile["depth_shift"]
-    curvature = params.base_shape_quadratic + (0.02 if participant_type == "inventory_mm" else 0.0)
-    hump_center = params.hump_center + profile["hump_shift"]
-    hump_sigma = params.hump_sigma + (0.25 if participant_type == "passive_lp" else 0.0)
-    intercept = params.base_shape_intercept + (0.12 * profile["limit_bias"])
-    hump = params.hump_weight * profile["hump_weight"]
+    slope = params.shape.base_shape_linear + profile["depth_shift"]
+    curvature = params.shape.base_shape_quadratic + (0.02 if participant_type == "inventory_mm" else 0.0)
+    hump_center = params.shape.hump_center + profile["hump_shift"]
+    hump_sigma = params.shape.hump_sigma + (0.25 if participant_type == "passive_lp" else 0.0)
+    intercept = params.shape.base_shape_intercept + (0.12 * profile["limit_bias"])
+    hump = params.shape.hump_weight * profile["hump_weight"]
     wall_center = hump_center + 1.8 + profile["wall_shift"]
     wall_sigma = 0.95 + profile["wall_sigma"]
     wall = 0.18 + profile["wall_weight"]
-    inside_bonus = params.inside_base_bonus * profile["inside_weight"]
+    inside_bonus = params.shape.inside_base_bonus * profile["inside_weight"]
 
     if context is not None:
         spread_excess = context.spread_excess
@@ -354,7 +354,7 @@ def _limit_intensity(
     market_trace = context.excitation["market_buy"] if side == "bid" else context.excitation["market_sell"]
     side_sign = 1.0 if side == "bid" else -1.0
 
-    log_lambda = params.limit_base_log_intensity + params.regimes[regime].limit_offset
+    log_lambda = params.flow.limit_base_log_intensity + params.regimes[regime].limit_offset
     log_lambda += math.log(max(profile["limit"], 1e-6))
     log_lambda += math.log(max(context.seasonality["limit"], 1e-6))
     log_lambda += 0.28 * same_deficit * profile["replenish_weight"]
@@ -408,18 +408,18 @@ def _market_intensity(
     opposite_market_trace = context.excitation["market_sell"] if aggressor_side == "buy" else context.excitation["market_buy"]
     cancel_trace = context.excitation["cancel_ask_near"] if aggressor_side == "buy" else context.excitation["cancel_bid_near"]
 
-    log_lambda = params.market_base_log_intensity + params.regimes[regime].market_offset
+    log_lambda = params.flow.market_base_log_intensity + params.regimes[regime].market_offset
     log_lambda += math.log(max(profile["market"], 1e-6))
     log_lambda += math.log(max(context.seasonality["market"], 1e-6))
-    log_lambda += params.market_fair_weight * directional
-    log_lambda += params.market_flow_weight * max(sign * flow_signal, 0.0)
+    log_lambda += params.flow.market_fair_weight * directional
+    log_lambda += params.flow.market_flow_weight * max(sign * flow_signal, 0.0)
     log_lambda += 0.16 * max(sign * imbalance_signal, 0.0) * profile["directional_weight"]
-    log_lambda += params.market_thin_weight * opposite_thinness
+    log_lambda += params.flow.market_thin_weight * opposite_thinness
     log_lambda += 0.12 * context.hidden_vol
     log_lambda += 0.28 * same_market_trace * config.excitation_scale
     log_lambda -= 0.16 * opposite_market_trace * config.excitation_scale
     log_lambda += 0.09 * cancel_trace * config.excitation_scale
-    log_lambda -= params.market_spread_weight * max(features.spread_ticks - 1, 0)
+    log_lambda -= params.flow.market_spread_weight * max(features.spread_ticks - 1, 0)
 
     meta_order = context.meta_orders[aggressor_side]
     if meta_order is not None:
@@ -466,7 +466,7 @@ def _cancel_intensity(
     log_lambda += math.log(max(context.seasonality["cancel"], 1e-6))
     log_lambda += params.regimes[regime].cancel_offset
     log_lambda += 0.3 * context.hidden_vol
-    log_lambda += 0.18 * adverse * params.cancel_adverse_weight
+    log_lambda += 0.18 * adverse * params.flow.cancel_adverse_weight
     log_lambda += 0.14 * cancel_trace * config.excitation_scale
     log_lambda += 0.08 * opposite_market_trace * config.excitation_scale
     log_lambda += 0.08 * depth_factor

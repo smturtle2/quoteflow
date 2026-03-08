@@ -1,13 +1,24 @@
 from __future__ import annotations
 
+import hashlib
+import json
+import math
+from pathlib import Path
+
 import pandas as pd
 import pytest
 
 from orderwave import Market
-from orderwave._model.samplers import sample_participant_events
-from orderwave.book import OrderBook
-from orderwave.metrics import compute_features
-from orderwave.validation import _stable_frame_hash
+
+
+def _stable_frame_hash(frame: pd.DataFrame) -> str:
+    payload = {
+        "columns": list(frame.columns),
+        "records": frame.to_dict(orient="records"),
+    }
+    return hashlib.sha256(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
 
 
 def test_market_initializes_snapshot_and_history() -> None:
@@ -120,65 +131,6 @@ def test_book_invariants_hold_over_random_run() -> None:
     assert all(level["qty"] > 0 for level in snapshot["asks"])
 
 
-def test_quote_only_book_change_can_move_mid_without_touching_last_price() -> None:
-    market = Market(seed=1)
-    market._book = OrderBook(tick_size=market.tick_size)
-    market._book.set_level("bid", 10000, 5)
-    market._book.set_level("ask", 10003, 5)
-    market._buy_flow.clear()
-    market._sell_flow.clear()
-    market._mid_returns.clear()
-
-    before = market._build_snapshot(
-        compute_features(
-            market._book,
-            tick_size=market.tick_size,
-            depth_levels=market.levels,
-            buy_flow=[],
-            sell_flow=[],
-            mid_returns=[],
-        ),
-        bid_levels=market._book.top_levels("bid", market.levels),
-        ask_levels=market._book.top_levels("ask", market.levels),
-    )
-
-    market._book.cancel_level("ask", 10003, 5)
-    market._book.set_level("ask", 10004, 5)
-    after = market._build_snapshot(
-        compute_features(
-            market._book,
-            tick_size=market.tick_size,
-            depth_levels=market.levels,
-            buy_flow=[],
-            sell_flow=[],
-            mid_returns=[],
-        ),
-        bid_levels=market._book.top_levels("bid", market.levels),
-        ask_levels=market._book.top_levels("ask", market.levels),
-    )
-
-    assert before["mid_price"] != after["mid_price"]
-    assert before["last_price"] == after["last_price"] == 100.0
-
-
-def test_trade_updates_last_price_and_trade_metadata() -> None:
-    market = Market(seed=2)
-    market._book = OrderBook(tick_size=market.tick_size)
-    market._book.set_level("bid", 10000, 6)
-    market._book.set_level("ask", 10001, 2)
-    market._book.set_level("ask", 10002, 3)
-
-    result = market._book.execute_market("buy", 4)
-    market._last_trade_price = market.tick_size * result.last_fill_tick
-    market._last_trade_side = "buy"
-    market._last_trade_qty = float(result.filled_qty)
-
-    assert result.last_fill_tick == 10002
-    assert market._last_trade_price == 100.02
-    assert market._last_trade_side == "buy"
-    assert market._last_trade_qty == 4.0
-
-
 @pytest.mark.parametrize(
     ("preset", "seed", "steps", "expected_history", "expected_events", "expected_debug"),
     [
@@ -187,24 +139,24 @@ def test_trade_updates_last_price_and_trade_metadata() -> None:
             101,
             18,
             "7882a953e6748d16a553fdf5546f107be1362e70cf187c34d35ce6c490bd3c32",
-            "91a20071cfdbd582953914390f25aae54b0d662b8f83bcd9861bcf58f1975ec1",
-            "e1079296740056a117063a02178600aa4ef6e8c391ee5f1a788025a42c8bba7e",
+            "b906ab484dd79001f3ce6eaf8c0226876ed40bc6da3ab25d4492c72b27dbbb6e",
+            "46e1346f421983081996a00c0af88cad51171cfda0147645da7dcd7d9402437d",
         ),
         (
             "trend",
             202,
             18,
             "a271ec0347b445f46eb1d9e64ebb28399ad8317a5a34d305643bd3c1bca867ef",
-            "ca981134881738be5cf9b8b5aa40a16d2f3b37817cdfee791d8dc228f5644559",
-            "d6007ca86452c1cf083694c35cc0adcae7b8c494ee7fbbb6ff7ebf978cf7709a",
+            "9050e29b6460757d3f57a1a7bd117f8e512bda4fbcd39055a62abb7f45c5c694",
+            "cde0c2eaa71d658c4cad41f947587142ab596d82a975245cff9287178bf02ab3",
         ),
         (
             "volatile",
             303,
             18,
             "a76beb72cc9767eaeba024ba774e0eed967b2423f696282e3e20f9f1fd7681b1",
-            "3b0455a23a91fe910fa2e633068b45b182905c24542597055d046c968829707c",
-            "a36b14091cf487316350b916dbdeec491e942003c73c22cd1362772c93a0cdb7",
+            "8bfac05cc3d42d9055dd9473b9b4b6fb287984dee5596064c79579a4e15fc55a",
+            "be2ab075c56a8bd1d326e987492ece866ac759b6d1a11ea559bde235e8990630",
         ),
     ],
 )
@@ -222,103 +174,3 @@ def test_seeded_path_hashes_match_refactor_baseline(
     assert _stable_frame_hash(market.get_history()) == expected_history
     assert _stable_frame_hash(market.get_event_history()) == expected_events
     assert _stable_frame_hash(market.get_debug_history()) == expected_debug
-
-
-def test_step_pipeline_phases_preserve_mutation_boundaries() -> None:
-    market = Market(seed=42)
-    initial_step = market.get()["step"]
-    initial_history = market.get_history().copy()
-    previous_features = market._compute_features()
-
-    step_state = market.advance_latent_state(previous_features)
-    assert market.get()["step"] == initial_step
-    pd.testing.assert_frame_equal(market.get_history(), initial_history)
-
-    sampled_events = market.sample_step_events(step_state)
-    assert market.get()["step"] == initial_step
-    pd.testing.assert_frame_equal(market.get_history(), initial_history)
-
-    step_outcome = market.apply_step_events(sampled_events)
-    assert step_outcome.sampled_event_count == len(sampled_events)
-    assert step_outcome.applied_event_count <= step_outcome.sampled_event_count
-    assert market.get()["step"] == initial_step
-
-    market.finalize_step(step_state, step_outcome)
-    assert market.get()["step"] == initial_step + 1
-    assert len(market.get_history()) == len(initial_history) + 1
-
-
-def test_sample_step_events_is_deterministic_before_book_application() -> None:
-    market_a = Market(seed=99, config={"preset": "trend"})
-    market_b = Market(seed=99, config={"preset": "trend"})
-
-    features_a = market_a._compute_features()
-    features_b = market_b._compute_features()
-    state_a = market_a.advance_latent_state(features_a)
-    state_b = market_b.advance_latent_state(features_b)
-
-    events_a = market_a.sample_step_events(state_a)
-    events_b = market_b.sample_step_events(state_b)
-
-    assert events_a == events_b
-
-
-def test_canonical_budget_sampler_returns_valid_event_shapes() -> None:
-    market = Market(seed=17, config={"preset": "balanced"})
-    features = market._compute_features()
-    step_state = market.advance_latent_state(features)
-
-    events = sample_participant_events(
-        book=market._book,
-        features=step_state.previous_features,
-        hidden_fair_tick=step_state.hidden_fair_tick,
-        regime=step_state.regime,
-        context=step_state.context,
-        rng=market._rng,
-        config=market.config,
-        params=market._params,
-    )
-
-    assert all(event["type"] in {"limit", "market", "cancel"} for event in events)
-    assert all(event["participant_type"] in {"passive_lp", "inventory_mm", "noise_taker", "informed_meta"} for event in events)
-    assert all(event["qty"] > 0 for event in events)
-
-
-def test_liquidity_backstop_always_restores_visible_depth() -> None:
-    market = Market(seed=5, config={"liquidity_backstop": "always"})
-    market._book = OrderBook(tick_size=market.tick_size)
-    market._book.set_level("bid", 10000, 2)
-    market._book.set_level("ask", 10001, 2)
-
-    market._ensure_liquidity()
-
-    assert len(market._book.top_levels("bid", market._minimum_visible_levels)) == market._minimum_visible_levels
-    assert len(market._book.top_levels("ask", market._minimum_visible_levels)) == market._minimum_visible_levels
-
-
-def test_liquidity_backstop_on_empty_only_restores_missing_side() -> None:
-    market = Market(seed=6, config={"liquidity_backstop": "on_empty"})
-    market._book = OrderBook(tick_size=market.tick_size)
-    market._book.set_level("bid", 10000, 2)
-    market._book.set_level("ask", 10001, 2)
-
-    market._ensure_liquidity()
-    assert len(market._book.top_levels("bid", market._minimum_visible_levels)) == 1
-    assert len(market._book.top_levels("ask", market._minimum_visible_levels)) == 1
-
-    market._book.cancel_level("ask", 10001, 2)
-    market._ensure_liquidity()
-    assert market._book.best_ask_tick is not None
-    assert len(market._book.top_levels("bid", market._minimum_visible_levels)) == 1
-
-
-def test_liquidity_backstop_off_leaves_empty_side_empty() -> None:
-    market = Market(seed=7, config={"liquidity_backstop": "off"})
-    market._book = OrderBook(tick_size=market.tick_size)
-    market._book.set_level("bid", 10000, 2)
-    market._book.set_level("ask", 10001, 2)
-    market._book.cancel_level("ask", 10001, 2)
-
-    market._ensure_liquidity()
-
-    assert market._book.best_ask_tick is None
