@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from collections import deque
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Mapping
 
 import numpy as np
@@ -39,6 +40,23 @@ from orderwave.visualization import plot_market_diagnostics, plot_market_overvie
 
 if TYPE_CHECKING:
     from matplotlib.figure import Figure
+
+
+@dataclass(frozen=True)
+class StepState:
+    previous_features: MarketFeatures
+    previous_mid_price: float
+    regime: RegimeName
+    context: EngineContext
+    hidden_fair_tick: float
+
+
+@dataclass(frozen=True)
+class StepOutcome:
+    sampled_event_count: int
+    applied_event_count: int
+    step_buy_volume: float
+    step_sell_volume: float
 
 
 class Market:
@@ -140,6 +158,12 @@ class Market:
 
     def _step_impl(self) -> None:
         previous_features = self._compute_features()
+        step_state = self.advance_latent_state(previous_features)
+        sampled_events = self.sample_step_events(step_state)
+        step_outcome = self.apply_step_events(sampled_events)
+        self.finalize_step(step_state, step_outcome)
+
+    def advance_latent_state(self, previous_features: MarketFeatures) -> StepState:
         previous_mid_price = previous_features.mid_price
 
         self._advance_session_clock()
@@ -208,13 +232,21 @@ class Market:
             params=self._params,
             next_meta_order_id=self._next_meta_order_id,
         )
-
-        sampled_events = sample_participant_events(
-            book=self._book,
-            features=previous_features,
-            hidden_fair_tick=self._hidden_fair_tick,
+        return StepState(
+            previous_features=previous_features,
+            previous_mid_price=previous_mid_price,
             regime=self._regime,
             context=self._current_context(),
+            hidden_fair_tick=self._hidden_fair_tick,
+        )
+
+    def sample_step_events(self, step_state: StepState) -> list[dict[str, object]]:
+        sampled_events = sample_participant_events(
+            book=self._book,
+            features=step_state.previous_features,
+            hidden_fair_tick=step_state.hidden_fair_tick,
+            regime=step_state.regime,
+            context=step_state.context,
             rng=self._rng,
             config=self.config,
             params=self._params,
@@ -222,11 +254,12 @@ class Market:
         if sampled_events:
             order = self._rng.permutation(len(sampled_events))
             sampled_events = [sampled_events[index] for index in order]
+        return sampled_events
 
+    def apply_step_events(self, sampled_events: list[dict[str, object]]) -> StepOutcome:
         step_buy_volume = 0.0
         step_sell_volume = 0.0
         event_idx = 0
-
         for event in sampled_events:
             applied = self._apply_event(event, event_idx=event_idx)
             if applied is None:
@@ -236,14 +269,21 @@ class Market:
             elif applied["side"] == "sell":
                 step_sell_volume += applied["fill_qty"]
             event_idx += 1
+        return StepOutcome(
+            sampled_event_count=len(sampled_events),
+            applied_event_count=event_idx,
+            step_buy_volume=step_buy_volume,
+            step_sell_volume=step_sell_volume,
+        )
 
+    def finalize_step(self, step_state: StepState, step_outcome: StepOutcome) -> None:
         self._ensure_liquidity()
-        self._buy_flow.append(step_buy_volume)
-        self._sell_flow.append(step_sell_volume)
-        self._update_trade_strength_ema(step_buy_volume, step_sell_volume)
+        self._buy_flow.append(step_outcome.step_buy_volume)
+        self._sell_flow.append(step_outcome.step_sell_volume)
+        self._update_trade_strength_ema(step_outcome.step_buy_volume, step_outcome.step_sell_volume)
 
         current_features = self._compute_features()
-        self._mid_returns.append(current_features.mid_price - previous_mid_price)
+        self._mid_returns.append(current_features.mid_price - step_state.previous_mid_price)
 
         self._step += 1
         self._record_current_state(features=current_features)
@@ -533,6 +573,12 @@ class Market:
                 self._book.apply_limit_relative(side, level, target_qty)
 
     def _ensure_liquidity(self) -> None:
+        if self.config.liquidity_backstop == "off":
+            return
+        if self.config.liquidity_backstop == "on_empty":
+            if self._book.best_bid_tick is None or self._book.best_ask_tick is None:
+                self._ensure_two_sided_book(fallback_qty=self._fallback_liquidity_qty)
+            return
         self._ensure_two_sided_book(fallback_qty=self._fallback_liquidity_qty)
         self._ensure_visible_depth()
 

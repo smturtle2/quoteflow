@@ -8,6 +8,7 @@ from typing import Literal, Mapping
 PresetName = Literal["balanced", "trend", "volatile"]
 RegimeName = Literal["calm", "directional", "stressed"]
 LoggingMode = Literal["full", "history_only"]
+LiquidityBackstopMode = Literal["always", "on_empty", "off"]
 
 REGIME_NAMES: tuple[RegimeName, ...] = ("calm", "directional", "stressed")
 PRESET_NAMES: tuple[PresetName, ...] = ("balanced", "trend", "volatile")
@@ -57,6 +58,10 @@ class MarketConfig:
         Logging level for stored simulator history. ``"full"`` retains
         summary, event, debug, and plot history. ``"history_only"`` keeps
         summary and plot history only.
+    liquidity_backstop:
+        Post-step liquidity repair mode. ``"always"`` restores both sides and
+        minimum visible depth after each step. ``"on_empty"`` only restores a
+        missing side. ``"off"`` disables post-step liquidity repair.
     """
 
     preset: PresetName = "balanced"
@@ -74,6 +79,7 @@ class MarketConfig:
     meta_order_scale: float = 1.0
     shock_scale: float = 1.0
     logging_mode: LoggingMode = "full"
+    liquidity_backstop: LiquidityBackstopMode = "always"
 
 
 @dataclass(frozen=True)
@@ -360,6 +366,8 @@ def coerce_config(config: MarketConfig | Mapping[str, object] | None, levels: in
         raise ValueError(f"unsupported preset: {market_config.preset}")
     if market_config.logging_mode not in ("full", "history_only"):
         raise ValueError(f"unsupported logging_mode: {market_config.logging_mode}")
+    if market_config.liquidity_backstop not in ("always", "on_empty", "off"):
+        raise ValueError(f"unsupported liquidity_backstop: {market_config.liquidity_backstop}")
     if levels <= 0:
         raise ValueError("levels must be positive")
 
