@@ -99,6 +99,10 @@ runner는 다음 산출물을 생성합니다.
 - `acceptance_decision.md`
 - `diagnostics_<preset>_<seed>.png`
 
+release 빌드는 `tests/golden/validation_baseline.json`과 full validation 결과를 비교하고, 기준값이 어긋나면 PyPI publish 전에 실패합니다.
+
+다음 엔진 개선 범위는 의도적으로 좁게 유지합니다. 다음 단계는 finer intra-step event feedback만 다룹니다.
+
 ## API 표면
 
 | API | 설명 |
@@ -116,6 +120,7 @@ runner는 다음 산출물을 생성합니다.
 고급 설정은 `orderwave.config.MarketConfig`를 통해 사용할 수 있습니다.
 
 `logging_mode="history_only"`를 쓰면 summary history와 overview/book plotting 데이터만 남기고, `get_event_history()`, `get_debug_history()`, `plot_diagnostics()`는 `RuntimeError`를 발생시킵니다.
+기본값 `liquidity_backstop="always"`는 synthetic market이 기본적으로 양방향 호가와 관측 가능한 depth를 유지하게 만듭니다.
 
 ## 내장 시각화
 

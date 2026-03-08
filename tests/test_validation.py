@@ -2,18 +2,25 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import matplotlib
 import pandas as pd
+
+matplotlib.use("Agg")
 
 from orderwave.validation import (
     benchmark_logging_modes,
+    compare_validation_baseline,
     collect_invariant_failures,
     compute_run_metrics,
     evaluate_validation_results,
+    extract_validation_baseline,
+    load_validation_baseline,
     measure_performance,
     run_market_validation,
     run_reproducibility_checks,
     run_validation_pipeline,
     summarize_sensitivity_grid,
+    write_validation_baseline,
 )
 
 
@@ -214,6 +221,64 @@ def test_measure_performance_returns_summary_and_seed_metrics() -> None:
     assert set(result["logging_compare"]["logging_mode"]) == {"full", "history_only"}
     assert "floor_pass" in result["summary"].columns
     assert result["summary"]["throughput_floor"].iloc[0] > 0.0
+
+
+def test_validation_baseline_round_trip_and_self_compare(tmp_path: Path) -> None:
+    result = run_validation_pipeline(
+        outdir=tmp_path / "validation",
+        baseline_seeds=1,
+        baseline_steps=30,
+        sensitivity_seeds=1,
+        sensitivity_steps=20,
+        long_run_seeds=1,
+        long_run_steps=40,
+        jobs=1,
+    )
+
+    baseline_path = tmp_path / "validation_baseline.json"
+    write_validation_baseline(baseline_path, result)
+    baseline = load_validation_baseline(baseline_path)
+    comparison = compare_validation_baseline(result, baseline)
+
+    assert baseline["schema_version"] == 1
+    assert baseline["liquidity_backstop_default"] == "always"
+    assert comparison["matches"] is True
+    assert comparison["failures"] == []
+
+
+def test_validation_baseline_detects_drift(tmp_path: Path) -> None:
+    result = run_validation_pipeline(
+        outdir=tmp_path / "validation",
+        baseline_seeds=1,
+        baseline_steps=30,
+        sensitivity_seeds=1,
+        sensitivity_steps=20,
+        long_run_seeds=1,
+        long_run_steps=40,
+        jobs=1,
+    )
+    baseline = extract_validation_baseline(result)
+    baseline["acceptance"]["decision"] = "GO"
+
+    comparison = compare_validation_baseline(result, baseline)
+
+    assert comparison["matches"] is False
+    assert any("acceptance.decision" in failure for failure in comparison["failures"])
+
+
+def test_readme_mentions_liquidity_backstop_default() -> None:
+    readme = Path("README.md").read_text(encoding="utf-8")
+
+    assert 'Default `liquidity_backstop="always"` keeps the synthetic market two-sided and observable by default.' in readme
+
+
+def test_repo_validation_baseline_file_has_expected_shape() -> None:
+    baseline = load_validation_baseline(Path("tests/golden/validation_baseline.json"))
+
+    assert baseline["schema_version"] == 1
+    assert baseline["liquidity_backstop_default"] == "always"
+    assert baseline["acceptance"]["decision"] == "GO"
+    assert baseline["next_focus"] == "finer_event_feedback"
 
 
 def test_run_validation_pipeline_writes_final_artifacts(tmp_path: Path) -> None:

@@ -121,6 +121,10 @@ The runner writes:
 - `acceptance_decision.md`
 - `diagnostics_<preset>_<seed>.png`
 
+Release builds compare this output against `tests/golden/validation_baseline.json` and stop before publish if the baseline drifts.
+
+The next engine improvement target is intentionally narrow: finer intra-step event feedback only.
+
 ## Preset Comparison
 
 ![Preset comparison](../assets/orderwave-built-in-presets.png)

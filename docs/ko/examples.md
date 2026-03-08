@@ -121,6 +121,10 @@ runner는 다음 산출물을 생성합니다.
 - `acceptance_decision.md`
 - `diagnostics_<preset>_<seed>.png`
 
+release 빌드는 이 결과를 `tests/golden/validation_baseline.json`과 비교하고, 기준값이 어긋나면 publish 전에 중단합니다.
+
+다음 엔진 개선 범위는 의도적으로 좁게 유지합니다. 다음 단계는 finer intra-step event feedback만 다룹니다.
+
 ## Preset 비교
 
 ![Preset comparison](../assets/orderwave-built-in-presets.png)

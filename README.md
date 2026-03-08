@@ -99,6 +99,10 @@ The runner writes:
 - `acceptance_decision.md`
 - `diagnostics_<preset>_<seed>.png`
 
+Release builds compare the full validation output against `tests/golden/validation_baseline.json` and fail before PyPI publish if the baseline drifts.
+
+The next engine improvement target is intentionally narrow: finer intra-step event feedback only.
+
 ## API Surface
 
 | API | Purpose |
@@ -116,6 +120,7 @@ The runner writes:
 Advanced configuration is available through `orderwave.config.MarketConfig`.
 
 `logging_mode="history_only"` keeps summary history plus overview/book plotting data, but disables `get_event_history()`, `get_debug_history()`, and `plot_diagnostics()`.
+Default `liquidity_backstop="always"` keeps the synthetic market two-sided and observable by default.
 
 ## Built-in Visualization
 

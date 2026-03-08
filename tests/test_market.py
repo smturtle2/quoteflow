@@ -25,6 +25,7 @@ def test_market_initializes_snapshot_and_history() -> None:
     assert len(snapshot["bids"]) <= market.levels
     assert len(snapshot["asks"]) <= market.levels
     assert list(history["step"]) == [0]
+    assert market.config.liquidity_backstop == "always"
 
 
 def test_gen_matches_repeated_step_for_same_seed() -> None:
