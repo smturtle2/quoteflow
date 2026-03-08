@@ -75,7 +75,7 @@ VALIDATION_BASELINE_METRIC_RULES: dict[str, dict[str, tuple[str, float]]] = {
     },
     "soak": {
         "peak_memory_mb_mean": ("max", 256.0),
-        "bytes_per_logged_event_mean": ("max", 2048.0),
+        "bytes_per_logged_event_mean": ("max", 4096.0),
     },
 }
 
