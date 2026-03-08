@@ -94,7 +94,7 @@ diagnostics = market.plot_diagnostics()
 - `get_event_history()`는 실제 적용된 event stream만 반환합니다
 - `get_debug_history()`는 같은 `step`, `event_idx` 키로 participant type, meta-order progress, burst state, shock state를 반환합니다
 - `history_only` 모드는 `get_history()`, `plot()`, `plot_book()`은 유지하지만 `get_event_history()`, `get_debug_history()`, `plot_diagnostics()`는 비활성화합니다
-- 기본값 `liquidity_backstop="always"`는 synthetic book이 양방향으로 보이고 최소 visible depth를 유지하도록 돕습니다
+- 기본값 `liquidity_backstop="always"`는 synthetic book이 양방향으로 보이게 유지하고 각 step 뒤 최소 visible depth를 복구하며 기본 경로를 관측 가능하게 유지합니다
 
 ## 재현성
 

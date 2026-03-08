@@ -119,9 +119,9 @@ The runner writes:
 - `sensitivity_summary.csv`
 - `invariant_failures.csv`
 - `acceptance_decision.md`
-- `diagnostics_<preset>_<seed>.png`
+- `diagnostics_<preset>_<seed>.png` when diagnostics rendering is enabled
 
-Release builds run the shorter `--profile release` regression and compare it against `tests/golden/validation_release_baseline.json` before publish.
+Release builds run a dedicated `Release Validation` job that executes the shorter `--profile release` regression and compares it against `tests/golden/validation_release_baseline.json` before publish.
 That release profile is intentionally tiny so the CI release gate stays fast.
 
 The next engine improvement target is intentionally narrow: finer intra-step event feedback only.

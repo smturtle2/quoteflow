@@ -11,7 +11,7 @@ PyPI publishing is driven by [`workflow.yml`](https://github.com/smturtle2/quote
 3. Open GitHub `Releases`
 4. Draft a new release with a tag like `vX.Y.Z`
 5. Publish the release
-6. Wait for the GitHub Actions workflow to test, build, and publish
+6. Wait for the `Quality`, `Test`, `Build distributions`, `Release Validation`, and `Publish to PyPI` jobs to complete
 
 Before PyPI publish, the workflow runs:
 
@@ -35,3 +35,4 @@ This release profile is intentionally much smaller than the full validation swee
 - Drafts alone do not publish
 - PyPI trusted publishing requires `id-token: write` in the GitHub Actions job
 - Release validation compares against `tests/golden/validation_release_baseline.json`
+- diagnostics images are not required in the short release profile

@@ -98,9 +98,9 @@ runner는 다음 산출물을 생성합니다.
 - `sensitivity_summary.csv`
 - `invariant_failures.csv`
 - `acceptance_decision.md`
-- `diagnostics_<preset>_<seed>.png`
+- diagnostics 렌더링이 켜진 경우 `diagnostics_<preset>_<seed>.png`
 
-release 빌드는 더 짧은 `--profile release` 회귀를 돌리고 `tests/golden/validation_release_baseline.json`과 비교한 뒤 PyPI publish를 진행합니다.
+release 빌드는 별도의 `Release Validation` job에서 더 짧은 `--profile release` 회귀를 돌리고 `tests/golden/validation_release_baseline.json`과 비교한 뒤에만 PyPI publish를 진행합니다.
 이 release profile은 CI 검증 게이트를 빠르게 유지하도록 의도적으로 작게 유지합니다.
 
 다음 엔진 개선 범위는 의도적으로 좁게 유지합니다. 다음 단계는 finer intra-step event feedback만 다룹니다.
@@ -122,7 +122,7 @@ release 빌드는 더 짧은 `--profile release` 회귀를 돌리고 `tests/gold
 고급 설정은 `orderwave.config.MarketConfig`를 통해 사용할 수 있습니다.
 
 `logging_mode="history_only"`를 쓰면 summary history와 overview/book plotting 데이터만 남기고, `get_event_history()`, `get_debug_history()`, `plot_diagnostics()`는 `RuntimeError`를 발생시킵니다.
-기본값 `liquidity_backstop="always"`는 synthetic market이 기본적으로 양방향 호가와 관측 가능한 depth를 유지하게 만듭니다.
+기본값 `liquidity_backstop="always"`는 synthetic market이 양방향 호가를 유지하고, 각 step 뒤 최소 visible depth를 복구하며, 기본 baseline path를 관측 가능하게 유지합니다.
 더 얇거나 비는 책 상태를 허용하려면 `"on_empty"`와 `"off"`도 사용할 수 있습니다.
 
 ## 내장 시각화

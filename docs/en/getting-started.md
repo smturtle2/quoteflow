@@ -94,7 +94,7 @@ The current state returned by `get()` is intentionally compact.
 - `get_event_history()` returns the applied event stream only
 - `get_debug_history()` returns participant type, meta-order progress, burst state, and shock state aligned to the same `step` and `event_idx` keys
 - `history_only` mode keeps `get_history()`, `plot()`, and `plot_book()`, but disables `get_event_history()`, `get_debug_history()`, and `plot_diagnostics()`
-- default `liquidity_backstop="always"` keeps the synthetic book two-sided and observable
+- default `liquidity_backstop="always"` keeps the synthetic book two-sided, restores minimum visible depth after each step, and keeps the default path observable
 
 ## Reproducibility
 
