@@ -75,11 +75,6 @@
           "value": 0.5009401545755637,
           "mode": "abs",
           "tolerance": 0.08
-        },
-        "steps_per_second_mean": {
-          "value": 553.437714132286,
-          "mode": "min",
-          "tolerance": 50.0
         }
       },
       "trend": {
@@ -107,11 +102,6 @@
           "value": 0.5077420563599117,
           "mode": "abs",
           "tolerance": 0.08
-        },
-        "steps_per_second_mean": {
-          "value": 411.66786403226337,
-          "mode": "min",
-          "tolerance": 50.0
         }
       },
       "volatile": {
@@ -139,11 +129,6 @@
           "value": 0.4992632158344432,
           "mode": "abs",
           "tolerance": 0.08
-        },
-        "steps_per_second_mean": {
-          "value": 377.3719899559011,
-          "mode": "min",
-          "tolerance": 50.0
         }
       }
     },

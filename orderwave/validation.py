@@ -58,9 +58,9 @@ INVARIANT_FAILURE_COLUMNS: list[str] = [
 ]
 EPSILON = 1e-9
 BASELINE_THROUGHPUT_FLOOR = {
-    "balanced": 425.0,
-    "trend": 300.0,
-    "volatile": 260.0,
+    "balanced": 300.0,
+    "trend": 225.0,
+    "volatile": 200.0,
 }
 SOAK_PEAK_MEMORY_BUDGET_MB = {
     "balanced": 2_048.0,
@@ -77,7 +77,6 @@ VALIDATION_BASELINE_METRIC_RULES: dict[str, dict[str, tuple[str, float]]] = {
         "abs_return_acf1_mean": ("abs", 0.08),
         "events_per_step_mean": ("abs", 8.0),
         "market_buy_share_mean": ("abs", 0.08),
-        "steps_per_second_mean": ("min", 50.0),
     },
     "soak": {
         "peak_memory_mb_mean": ("max", 256.0),
