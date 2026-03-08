@@ -12,7 +12,6 @@ from .shared import (
     PHASE_ORDER,
     ValidationRun,
     coefficient_of_variation,
-    deterministic_metric_view,
     directional_ratio,
     failure_row,
     quasi_monotonic,
@@ -21,8 +20,6 @@ from .shared import (
     safe_mean,
     safe_std,
     sensitivity_target_metric,
-    stable_frame_hash,
-    stable_object_hash,
     tick_size_from_run,
 )
 

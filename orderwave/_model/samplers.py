@@ -1,25 +1,21 @@
 from __future__ import annotations
 
-import math
-from typing import Literal, Mapping, Sequence
+from typing import Any, Literal, Sequence
 
 import numpy as np
 
 from orderwave.book import OrderBook
 from orderwave.config import MarketConfig, PresetParams, RegimeName
 from orderwave.metrics import MarketFeatures
-from orderwave.utils import clipped_exp, coerce_quantity
+from orderwave.utils import coerce_quantity
 
-from .latent import _bounded_signal, _meta_signal, meta_order_progress
 from .events import StepEvent, make_cancel_event, make_limit_event, make_market_event
+from .latent import _meta_signal
 from .scoring import (
     _aggregate_cancel_side_weight,
     _aggregate_limit_side_weight,
     _aggregate_market_side_weight,
     _cancel_level_weight,
-    _cancel_intensity,
-    _limit_intensity,
-    _market_intensity,
     _participant_profile,
     score_limit_levels,
 )

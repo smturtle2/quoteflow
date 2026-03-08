@@ -9,7 +9,7 @@ from orderwave.config import MarketConfig, PresetParams, RegimeName
 from orderwave.metrics import MarketFeatures
 from orderwave.utils import clipped_exp, stable_softmax
 
-from .latent import _bounded_signal, _meta_signal, _shock_directional_signal, meta_order_progress
+from .latent import _bounded_signal, meta_order_progress
 from .types import AggressorSide, EngineContext, ModelSide, ParticipantType
 
 

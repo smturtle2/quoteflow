@@ -6,11 +6,11 @@ from typing import Mapping
 
 import numpy as np
 
-from orderwave.config import MarketConfig, PresetParams, REGIME_NAMES, RegimeName
+from orderwave.config import REGIME_NAMES, MarketConfig, PresetParams, RegimeName
 from orderwave.metrics import MarketFeatures
 from orderwave.utils import clamp
 
-from .types import AggressorSide, EngineContext, MetaOrderState, SessionPhase, SHOCK_NAMES, ShockState
+from .types import SHOCK_NAMES, AggressorSide, EngineContext, MetaOrderState, SessionPhase, ShockState
 
 
 def resolve_session_phase(session_step: int, steps_per_day: int) -> tuple[SessionPhase, float]:

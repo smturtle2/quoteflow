@@ -1,4 +1,9 @@
-from .baseline import compare_validation_baseline, extract_validation_baseline, load_validation_baseline, write_validation_baseline
+from .baseline import (
+    compare_validation_baseline,
+    extract_validation_baseline,
+    load_validation_baseline,
+    write_validation_baseline,
+)
 from .decision import evaluate_validation_results
 from .metrics import (
     collect_invariant_failures,

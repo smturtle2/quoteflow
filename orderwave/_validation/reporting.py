@@ -125,7 +125,7 @@ def write_validation_summary(
             "",
             "## 10. 최종 판정",
             f"- 판정: `{acceptance['decision']}`",
-            f"- 평가 관점: synthetic market-state generator",
+            "- 평가 관점: synthetic market-state generator",
             f"- 핵심 강점: {', '.join(acceptance['strengths'])}",
             f"- 핵심 약점: {', '.join(acceptance['weaknesses']) if acceptance['weaknesses'] else '없음'}",
             f"- 즉시 채택 가능 범위: {acceptance['immediate_scope']}",

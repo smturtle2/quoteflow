@@ -132,7 +132,6 @@ def test_balanced_preset_statistical_guardrails_hold() -> None:
     joined = events.merge(debug, on=["step", "event_idx"], how="inner")
     market_joined = joined.loc[joined["event_type"] == "market"].copy()
     market_joined["sign"] = market_joined["side"].map({"buy": 1.0, "sell": -1.0}).astype(float)
-    base_step_sign = market_joined.loc[market_joined["meta_order_id"].isna()].groupby("step")["sign"].sum()
     meta_step_sign = market_joined.loc[market_joined["meta_order_id"].notna()].groupby("step")["sign"].sum()
     meta_directionality = float(meta_step_sign.abs().mean())
 

@@ -17,7 +17,7 @@ def test_score_limit_levels_returns_normalized_probabilities() -> None:
         features=features,
         hidden_fair_tick=market._hidden_fair_tick,
         regime=market._regime,
-        context=market._current_context(),
+        context=market._engine._current_context(),
         config=market.config,
         params=market._params,
     )

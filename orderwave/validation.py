@@ -30,11 +30,6 @@ from orderwave._validation import (
     summarize_validation_grid,
     write_validation_baseline,
 )
-from orderwave._validation.metrics import reproducibility_failures as _reproducibility_failures
-from orderwave._validation.metrics import table_nonfinite_failures as _table_nonfinite_failures
-from orderwave._validation.reporting import write_acceptance_decision as _write_acceptance_decision
-from orderwave._validation.reporting import write_validation_summary as _write_validation_summary
-from orderwave._validation.run import _select_diagnostics_seeds
 
 __all__ = [
     "BASELINE_THROUGHPUT_FLOOR",

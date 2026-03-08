@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-from typing import Literal, TypedDict
+from typing import Literal, TypeAlias, TypedDict, TypeGuard
 
 from .types import AggressorSide, ModelSide, ParticipantType
 
+EventSide: TypeAlias = ModelSide | AggressorSide
 
-EventSide = ModelSide | AggressorSide
 
-
-class _BaseEvent(TypedDict):
+class _DebugEventRecord(TypedDict):
     event_type: Literal["limit", "market", "cancel"]
     side: EventSide
     qty: float
@@ -18,20 +17,35 @@ class _BaseEvent(TypedDict):
     meta_order_side: AggressorSide | None
 
 
-class LimitEvent(_BaseEvent):
+class LimitEvent(TypedDict):
     event_type: Literal["limit"]
     side: ModelSide
+    qty: float
+    source: str
+    participant_type: ParticipantType
+    meta_order_id: int | None
+    meta_order_side: AggressorSide | None
     level: int
 
 
-class MarketEvent(_BaseEvent):
+class MarketEvent(TypedDict):
     event_type: Literal["market"]
     side: AggressorSide
+    qty: float
+    source: str
+    participant_type: ParticipantType
+    meta_order_id: int | None
+    meta_order_side: AggressorSide | None
 
 
-class CancelEvent(_BaseEvent):
+class CancelEvent(TypedDict):
     event_type: Literal["cancel"]
     side: ModelSide
+    qty: float
+    source: str
+    participant_type: ParticipantType
+    meta_order_id: int | None
+    meta_order_side: AggressorSide | None
     level: int | None
     tick: int
 
@@ -53,6 +67,36 @@ class EventLogRecord(TypedDict):
     applied_qty: float
     fill_qty: float
     fills: tuple[tuple[float, float], ...]
+
+
+__all__ = [
+    "AppliedEventResult",
+    "CancelEvent",
+    "EventLogRecord",
+    "EventSide",
+    "LimitEvent",
+    "MarketEvent",
+    "StepEvent",
+    "build_debug_event_record",
+    "is_cancel_event",
+    "is_limit_event",
+    "is_market_event",
+    "make_cancel_event",
+    "make_limit_event",
+    "make_market_event",
+]
+
+
+def is_limit_event(event: StepEvent) -> TypeGuard[LimitEvent]:
+    return event["event_type"] == "limit"
+
+
+def is_market_event(event: StepEvent) -> TypeGuard[MarketEvent]:
+    return event["event_type"] == "market"
+
+
+def is_cancel_event(event: StepEvent) -> TypeGuard[CancelEvent]:
+    return event["event_type"] == "cancel"
 
 
 def make_limit_event(
@@ -121,7 +165,7 @@ def make_cancel_event(
     }
 
 
-def build_debug_event_record(event: StepEvent) -> _BaseEvent:
+def build_debug_event_record(event: StepEvent) -> _DebugEventRecord:
     return {
         "event_type": event["event_type"],
         "side": event["side"],

@@ -12,7 +12,6 @@ import pandas as pd
 from orderwave.book import OrderBook
 from orderwave.utils import tick_to_price
 
-
 REGIME_ORDER = ("calm", "directional", "stressed")
 
 

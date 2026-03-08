@@ -1,18 +1,17 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import hashlib
 import json
 import math
-from pathlib import Path
 import threading
 import tracemalloc
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 import numpy as np
 import pandas as pd
 
-from orderwave.history import DEBUG_COLUMNS, EVENT_COLUMNS
 from orderwave.market import Market
 
 try:

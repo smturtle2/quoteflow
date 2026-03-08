@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import hashlib
+import importlib
 import json
 import math
-from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -60,6 +60,22 @@ def test_market_initializes_snapshot_and_history() -> None:
     assert len(snapshot["asks"]) <= market.levels
     assert list(history["step"]) == [0]
     assert market.config.liquidity_backstop == "always"
+
+
+def test_market_hides_internal_engine_stage_methods() -> None:
+    market_attrs = set(dir(Market))
+
+    assert "advance_latent_state" not in market_attrs
+    assert "sample_step_events" not in market_attrs
+    assert "apply_step_events" not in market_attrs
+    assert "finalize_step" not in market_attrs
+
+
+def test_orderwave_model_stub_rejects_internal_symbol_access() -> None:
+    module = importlib.import_module("orderwave.model")
+
+    with pytest.raises(AttributeError, match="orderwave.model is internal"):
+        getattr(module, "sample_participant_events")
 
 
 def test_gen_matches_repeated_step_for_same_seed() -> None:

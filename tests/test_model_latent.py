@@ -17,9 +17,9 @@ def test_advance_latent_state_does_not_mutate_public_outputs() -> None:
     initial_snapshot = market.get()
     initial_history = market.get_history().copy()
 
-    step_state = market.advance_latent_state(market._compute_features())
+    step_state = market._engine._advance_latent_state(market._compute_features())
 
-    assert step_state.regime in {"calm", "directional", "stressed"}
+    assert market._regime in {"calm", "directional", "stressed"}
     assert step_state.context.session_phase in {"open", "mid", "close"}
     assert market.get() == initial_snapshot
     pd.testing.assert_frame_equal(market.get_history(), initial_history)

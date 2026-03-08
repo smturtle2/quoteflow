@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "orderwave"
-version = "0.4.10"
+version = "0.4.11"
 description = "An order-flow-driven synthetic market simulator."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -33,8 +33,10 @@ Issues = "https://github.com/smturtle2/quoteflow/issues"
 
 [project.optional-dependencies]
 dev = [
+  "mypy>=1.11",
   "psutil>=6.0",
   "pytest>=8.0",
+  "ruff>=0.6",
 ]
 
 [tool.setuptools]
@@ -45,3 +47,27 @@ include = ["orderwave*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["F", "I"]
+
+[tool.mypy]
+python_version = "3.11"
+files = [
+  "orderwave/__init__.py",
+  "orderwave/market.py",
+  "orderwave/_engine.py",
+  "orderwave/_model/events.py",
+  "orderwave/model.py",
+]
+follow_imports = "skip"
+ignore_missing_imports = true
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+pretty = true

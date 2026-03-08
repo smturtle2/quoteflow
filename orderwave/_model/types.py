@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, Mapping
 
-
 ModelSide = Literal["bid", "ask"]
 AggressorSide = Literal["buy", "sell"]
 SessionPhase = Literal["open", "mid", "close"]
