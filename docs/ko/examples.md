@@ -122,6 +122,7 @@ runner는 다음 산출물을 생성합니다.
 - `diagnostics_<preset>_<seed>.png`
 
 release 빌드는 더 짧은 `--profile release` 회귀를 돌리고 `tests/golden/validation_release_baseline.json`과 비교한 뒤 publish를 진행합니다.
+이 release profile은 CI 릴리스 게이트를 빠르게 유지하도록 아주 작게 유지합니다.
 
 다음 엔진 개선 범위는 의도적으로 좁게 유지합니다. 다음 단계는 finer intra-step event feedback만 다룹니다.
 

@@ -15,6 +15,7 @@
 ## 왜 orderwave인가
 
 - 공개 진입점은 `from orderwave import Market` 하나로 단순합니다
+- 지원되는 공개 API는 `Market`이고, engine/model 내부는 구현 세부사항입니다
 - 가격 변화는 오직 호가장 변화의 결과로만 발생합니다
 - hidden fair value, session clock, shock, meta-order가 주문 흐름을 편향시키지만 가격을 직접 덮어쓰지 않습니다
 - 같은 seed면 같은 경로가 재현됩니다
@@ -100,6 +101,7 @@ runner는 다음 산출물을 생성합니다.
 - `diagnostics_<preset>_<seed>.png`
 
 release 빌드는 더 짧은 `--profile release` 회귀를 돌리고 `tests/golden/validation_release_baseline.json`과 비교한 뒤 PyPI publish를 진행합니다.
+이 release profile은 CI 검증 게이트를 빠르게 유지하도록 의도적으로 작게 유지합니다.
 
 다음 엔진 개선 범위는 의도적으로 좁게 유지합니다. 다음 단계는 finer intra-step event feedback만 다룹니다.
 
@@ -121,6 +123,7 @@ release 빌드는 더 짧은 `--profile release` 회귀를 돌리고 `tests/gold
 
 `logging_mode="history_only"`를 쓰면 summary history와 overview/book plotting 데이터만 남기고, `get_event_history()`, `get_debug_history()`, `plot_diagnostics()`는 `RuntimeError`를 발생시킵니다.
 기본값 `liquidity_backstop="always"`는 synthetic market이 기본적으로 양방향 호가와 관측 가능한 depth를 유지하게 만듭니다.
+더 얇거나 비는 책 상태를 허용하려면 `"on_empty"`와 `"off"`도 사용할 수 있습니다.
 
 ## 내장 시각화
 

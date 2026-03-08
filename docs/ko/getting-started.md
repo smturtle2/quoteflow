@@ -56,6 +56,7 @@ Market(
 - `seed`: 재현 가능한 난수 시드
 - `config`: `dict` 또는 `orderwave.config.MarketConfig`
 - `config["logging_mode"]`: `"full"` 또는 `"history_only"`
+- `config["liquidity_backstop"]`: `"always"`(기본값), `"on_empty"`, `"off"`
 
 ## 내장 플롯
 
@@ -93,6 +94,7 @@ diagnostics = market.plot_diagnostics()
 - `get_event_history()`는 실제 적용된 event stream만 반환합니다
 - `get_debug_history()`는 같은 `step`, `event_idx` 키로 participant type, meta-order progress, burst state, shock state를 반환합니다
 - `history_only` 모드는 `get_history()`, `plot()`, `plot_book()`은 유지하지만 `get_event_history()`, `get_debug_history()`, `plot_diagnostics()`는 비활성화합니다
+- 기본값 `liquidity_backstop="always"`는 synthetic book이 양방향으로 보이고 최소 visible depth를 유지하도록 돕습니다
 
 ## 재현성
 

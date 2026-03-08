@@ -3,6 +3,7 @@
 [English Docs](https://github.com/smturtle2/quoteflow/tree/main/docs/en) | [한국어 README](https://github.com/smturtle2/quoteflow/blob/main/README.ko.md)
 
 `orderwave`는 session-aware 상태조건부 aggregate limit order book을 시뮬레이션하고, 같은 `Market` 객체에서 결과를 바로 시각화할 수 있는 파이썬 라이브러리입니다.
+지원되는 공개 API는 `Market`이며, 내부 engine/model 모듈은 안정적인 import 경로로 문서화하지 않습니다.
 
 ![Overview](../assets/orderwave-built-in-overview.png)
 

@@ -8,6 +8,8 @@
 from orderwave import Market
 ```
 
+`Market` is the supported public entry point. Internal modules such as `orderwave.model` are implementation details rather than stable library API.
+
 ## `Market`
 
 ```python
@@ -189,5 +191,6 @@ from orderwave.config import MarketConfig
 - `meta_order_scale`
 - `shock_scale`
 - `logging_mode`
+- `liquidity_backstop`
 
 `config` passed to `Market` can be either a `MarketConfig` instance or a plain mapping with the same keys.

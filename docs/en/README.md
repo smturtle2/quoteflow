@@ -3,6 +3,7 @@
 [README](https://github.com/smturtle2/quoteflow/blob/main/README.md) | [한국어 문서](https://github.com/smturtle2/quoteflow/tree/main/docs/ko)
 
 `orderwave` is a compact Python library for simulating a session-aware, state-conditioned aggregate limit order book and visualizing the result directly from the same `Market` object.
+`Market` is the supported public API; internal engine and model modules are intentionally not documented as stable imports.
 
 ![Overview](../assets/orderwave-built-in-overview.png)
 

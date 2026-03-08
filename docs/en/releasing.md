@@ -13,6 +13,14 @@ PyPI publishing is driven by [`workflow.yml`](https://github.com/smturtle2/quote
 5. Publish the release
 6. Wait for the GitHub Actions workflow to test, build, and publish
 
+Before PyPI publish, the workflow runs:
+
+```bash
+python scripts/validate_orderwave.py --profile release --outdir artifacts/validation-release --baseline-json tests/golden/validation_release_baseline.json --fail-on-baseline-drift
+```
+
+This release profile is intentionally much smaller than the full validation sweep so the gate stays fast in CI.
+
 ## Trusted Publisher Settings
 
 - PyPI project name: `orderwave`
@@ -26,3 +34,4 @@ PyPI publishing is driven by [`workflow.yml`](https://github.com/smturtle2/quote
 - The release workflow triggers on `release.published`
 - Drafts alone do not publish
 - PyPI trusted publishing requires `id-token: write` in the GitHub Actions job
+- Release validation compares against `tests/golden/validation_release_baseline.json`

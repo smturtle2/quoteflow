@@ -8,6 +8,8 @@
 from orderwave import Market
 ```
 
+지원되는 공개 진입점은 `Market`입니다. `orderwave.model` 같은 내부 모듈은 구현 세부사항이며 안정적인 라이브러리 API가 아닙니다.
+
 ## `Market`
 
 ```python
@@ -189,5 +191,6 @@ from orderwave.config import MarketConfig
 - `meta_order_scale`
 - `shock_scale`
 - `logging_mode`
+- `liquidity_backstop`
 
 `Market`에 전달하는 `config`는 `MarketConfig` 인스턴스나 같은 키를 가진 `dict` 둘 다 가능합니다.

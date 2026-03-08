@@ -122,6 +122,7 @@ The runner writes:
 - `diagnostics_<preset>_<seed>.png`
 
 Release builds run the shorter `--profile release` regression and compare it against `tests/golden/validation_release_baseline.json` before publish.
+That release profile is intentionally tiny so the CI release gate stays fast.
 
 The next engine improvement target is intentionally narrow: finer intra-step event feedback only.
 

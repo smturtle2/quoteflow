@@ -15,6 +15,7 @@ Order-flow-driven synthetic market simulation for Python, with built-in visualiz
 ## Why orderwave
 
 - Minimal public entry point: `from orderwave import Market`
+- `Market` is the supported public API; engine and model internals are implementation details
 - Price changes only as a consequence of book mechanics
 - Hidden fair value, session clock, shocks, and meta-orders bias flow without directly overwriting price
 - Same seed, same path
@@ -100,6 +101,7 @@ The runner writes:
 - `diagnostics_<preset>_<seed>.png`
 
 Release builds run the shorter `--profile release` regression and compare it against `tests/golden/validation_release_baseline.json` before PyPI publish.
+That release profile is intentionally kept small so the CI validation gate stays fast.
 
 The next engine improvement target is intentionally narrow: finer intra-step event feedback only.
 
@@ -121,6 +123,7 @@ Advanced configuration is available through `orderwave.config.MarketConfig`.
 
 `logging_mode="history_only"` keeps summary history plus overview/book plotting data, but disables `get_event_history()`, `get_debug_history()`, and `plot_diagnostics()`.
 Default `liquidity_backstop="always"` keeps the synthetic market two-sided and observable by default.
+`"on_empty"` and `"off"` are available when you want to allow thinner or missing post-step liquidity.
 
 ## Built-in Visualization
 
