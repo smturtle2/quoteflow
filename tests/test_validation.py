@@ -281,6 +281,14 @@ def test_repo_validation_baseline_file_has_expected_shape() -> None:
     assert baseline["next_focus"] == "finer_event_feedback"
 
 
+def test_release_validation_baseline_file_has_expected_shape() -> None:
+    baseline = load_validation_baseline(Path("tests/golden/validation_release_baseline.json"))
+
+    assert baseline["schema_version"] == 1
+    assert baseline["liquidity_backstop_default"] == "always"
+    assert baseline["next_focus"] == "finer_event_feedback"
+
+
 def test_run_validation_pipeline_writes_final_artifacts(tmp_path: Path) -> None:
     result = run_validation_pipeline(
         outdir=tmp_path,

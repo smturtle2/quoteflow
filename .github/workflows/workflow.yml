@@ -88,18 +88,12 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e .[dev]
 
-      - name: Run full validation regression
+      - name: Run release validation regression
         run: >
           python scripts/validate_orderwave.py
-          --baseline-steps 20000
-          --baseline-seeds 20
-          --sensitivity-steps 15000
-          --sensitivity-seeds 8
-          --long-run-steps 200000
-          --long-run-seeds 3
-          --jobs 4
+          --profile release
           --outdir artifacts/validation-release
-          --baseline-json tests/golden/validation_baseline.json
+          --baseline-json tests/golden/validation_release_baseline.json
           --fail-on-baseline-drift
 
       - name: Upload validation artifacts

@@ -105,10 +105,10 @@ The script writes:
 
 ## Validation Sweep
 
-Use the validation runner when you want the full synthetic market-state validation pipeline rather than a single throughput snapshot.
+Use the validation runner when you want the synthetic market-state validation pipeline rather than a single throughput snapshot.
 
 ```bash
-python scripts/validate_orderwave.py --baseline-steps 20000 --baseline-seeds 20 --jobs 4 --outdir artifacts/validation
+python scripts/validate_orderwave.py --profile full --jobs 4 --outdir artifacts/validation
 ```
 
 The runner writes:
@@ -121,7 +121,7 @@ The runner writes:
 - `acceptance_decision.md`
 - `diagnostics_<preset>_<seed>.png`
 
-Release builds compare this output against `tests/golden/validation_baseline.json` and stop before publish if the baseline drifts.
+Release builds run the shorter `--profile release` regression and compare it against `tests/golden/validation_release_baseline.json` before publish.
 
 The next engine improvement target is intentionally narrow: finer intra-step event feedback only.
 

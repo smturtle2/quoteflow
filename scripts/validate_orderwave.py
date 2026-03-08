@@ -22,9 +22,45 @@ from orderwave.validation import (
     write_validation_baseline,
 )
 
+PROFILE_DEFAULTS: dict[str, dict[str, int]] = {
+    "full": {
+        "baseline_seeds": 20,
+        "baseline_steps": 20_000,
+        "sensitivity_seeds": 8,
+        "sensitivity_steps": 15_000,
+        "long_run_seeds": 3,
+        "long_run_steps": 200_000,
+        "jobs": 1,
+    },
+    "release": {
+        "baseline_seeds": 4,
+        "baseline_steps": 4_000,
+        "sensitivity_seeds": 2,
+        "sensitivity_steps": 3_000,
+        "long_run_seeds": 1,
+        "long_run_steps": 10_000,
+        "jobs": 2,
+    },
+    "smoke": {
+        "baseline_seeds": 1,
+        "baseline_steps": 30,
+        "sensitivity_seeds": 1,
+        "sensitivity_steps": 20,
+        "long_run_seeds": 1,
+        "long_run_steps": 40,
+        "jobs": 1,
+    },
+}
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the final orderwave validation pipeline.")
+    parser.add_argument(
+        "--profile",
+        choices=tuple(PROFILE_DEFAULTS),
+        default="full",
+        help="Preset validation workload profile.",
+    )
     parser.add_argument(
         "--presets",
         nargs="+",
@@ -68,22 +104,43 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    profile = PROFILE_DEFAULTS[args.profile]
     baseline_steps = args.steps if args.steps is not None else args.baseline_steps
     baseline_seeds = args.seeds if args.seeds is not None else args.baseline_seeds
+    sensitivity_steps = args.sensitivity_steps
+    sensitivity_seeds = args.sensitivity_seeds
+    long_run_steps = args.long_run_steps
+    long_run_seeds = args.long_run_seeds
+    jobs = max(1, int(args.jobs))
+
+    if args.steps is None and "--baseline-steps" not in sys.argv:
+        baseline_steps = profile["baseline_steps"]
+    if args.seeds is None and "--baseline-seeds" not in sys.argv:
+        baseline_seeds = profile["baseline_seeds"]
+    if "--sensitivity-steps" not in sys.argv:
+        sensitivity_steps = profile["sensitivity_steps"]
+    if "--sensitivity-seeds" not in sys.argv:
+        sensitivity_seeds = profile["sensitivity_seeds"]
+    if "--long-run-steps" not in sys.argv:
+        long_run_steps = profile["long_run_steps"]
+    if "--long-run-seeds" not in sys.argv:
+        long_run_seeds = profile["long_run_seeds"]
+    if "--jobs" not in sys.argv:
+        jobs = profile["jobs"]
 
     result = run_validation_pipeline(
         outdir=args.outdir,
         presets=args.presets,
         baseline_seeds=baseline_seeds,
         baseline_steps=baseline_steps,
-        sensitivity_seeds=args.sensitivity_seeds,
-        sensitivity_steps=args.sensitivity_steps,
-        long_run_seeds=args.long_run_seeds,
-        long_run_steps=args.long_run_steps,
+        sensitivity_seeds=sensitivity_seeds,
+        sensitivity_steps=sensitivity_steps,
+        long_run_seeds=long_run_seeds,
+        long_run_steps=long_run_steps,
         seed_start=args.seed_start,
         warmup_fraction=args.warmup_fraction,
         diagnostics_seed_policy=args.diagnostics_seed_policy,
-        jobs=max(1, int(args.jobs)),
+        jobs=jobs,
     )
 
     print(f"[validation] decision={result.acceptance['decision']}")

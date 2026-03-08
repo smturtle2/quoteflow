@@ -83,10 +83,10 @@ The runner writes:
 
 ## Validation Sweep
 
-The repository also includes a longer-form validation runner that executes the full synthetic market-state validation plan: baseline preset sweeps, knob sensitivity, reproducibility checks, and long-run soak tests.
+The repository also includes a validation runner for preset sweeps, knob sensitivity, reproducibility checks, and soak tests.
 
 ```bash
-python scripts/validate_orderwave.py --baseline-steps 20000 --baseline-seeds 20 --jobs 4 --outdir artifacts/validation
+python scripts/validate_orderwave.py --profile full --jobs 4 --outdir artifacts/validation
 ```
 
 The runner writes:
@@ -99,7 +99,7 @@ The runner writes:
 - `acceptance_decision.md`
 - `diagnostics_<preset>_<seed>.png`
 
-Release builds compare the full validation output against `tests/golden/validation_baseline.json` and fail before PyPI publish if the baseline drifts.
+Release builds run the shorter `--profile release` regression and compare it against `tests/golden/validation_release_baseline.json` before PyPI publish.
 
 The next engine improvement target is intentionally narrow: finer intra-step event feedback only.
 

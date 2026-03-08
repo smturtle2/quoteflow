@@ -83,10 +83,10 @@ python scripts/measure_performance.py --preset balanced --seeds 20 --steps 20000
 
 ## 검증 스윕
 
-장기 검증용 runner도 포함되어 있습니다. baseline preset sweep, knob sensitivity, 재현성, long-run soak까지 포함한 synthetic market-state 검증 파이프라인을 실행합니다.
+baseline preset sweep, knob sensitivity, 재현성, soak test를 묶어서 돌리는 validation runner도 포함되어 있습니다.
 
 ```bash
-python scripts/validate_orderwave.py --baseline-steps 20000 --baseline-seeds 20 --jobs 4 --outdir artifacts/validation
+python scripts/validate_orderwave.py --profile full --jobs 4 --outdir artifacts/validation
 ```
 
 runner는 다음 산출물을 생성합니다.
@@ -99,7 +99,7 @@ runner는 다음 산출물을 생성합니다.
 - `acceptance_decision.md`
 - `diagnostics_<preset>_<seed>.png`
 
-release 빌드는 `tests/golden/validation_baseline.json`과 full validation 결과를 비교하고, 기준값이 어긋나면 PyPI publish 전에 실패합니다.
+release 빌드는 더 짧은 `--profile release` 회귀를 돌리고 `tests/golden/validation_release_baseline.json`과 비교한 뒤 PyPI publish를 진행합니다.
 
 다음 엔진 개선 범위는 의도적으로 좁게 유지합니다. 다음 단계는 finer intra-step event feedback만 다룹니다.
 

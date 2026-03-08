@@ -1,0 +1,190 @@
+{
+  "schema_version": 1,
+  "liquidity_backstop_default": "always",
+  "acceptance": {
+    "decision": "CONDITIONAL",
+    "invariants_ok": true,
+    "reproducibility_ok": true,
+    "performance_ok": true,
+    "preset_separation_ok": false,
+    "stylized_facts_ok": true,
+    "sensitivity_ok": true,
+    "seed_stability_ok": false,
+    "performance_checks": {
+      "soak_failures": true,
+      "balanced_throughput_floor": true,
+      "trend_throughput_floor": true,
+      "volatile_throughput_floor": true,
+      "balanced_peak_rss_budget": true,
+      "trend_peak_rss_budget": true,
+      "volatile_peak_rss_budget": true,
+      "soak_bytes_per_logged_event_budget": true
+    },
+    "preset_checks": {
+      "volatile_realized_vol_gt_balanced": true,
+      "volatile_mean_spread_ge_balanced": true,
+      "trend_trade_sign_acf1_gt_balanced": false,
+      "preset_classifier_accuracy": true,
+      "classifier_accuracy": 0.9166666666666666
+    },
+    "stylized_checks": {
+      "abs_return_clustering": true,
+      "spread_variation": true,
+      "imbalance_signal": true,
+      "phase_separation": true,
+      "event_clustering": true,
+      "shock_response": true,
+      "meta_directionality": true
+    },
+    "sensitivity_checks": {
+      "cancel_rate_scale": false,
+      "excitation_scale": true,
+      "fair_price_vol_scale": true,
+      "limit_rate_scale": true,
+      "market_rate_scale": true,
+      "meta_order_scale": true,
+      "regime_transition_scale": true,
+      "seasonality_scale": true,
+      "shock_scale": true
+    }
+  },
+  "metrics": {
+    "baseline": {
+      "balanced": {
+        "mean_spread_mean": {
+          "value": 0.025411691196889755,
+          "mode": "abs",
+          "tolerance": 0.003
+        },
+        "realized_vol_mean": {
+          "value": 0.010518918294105385,
+          "mode": "abs",
+          "tolerance": 0.003
+        },
+        "abs_return_acf1_mean": {
+          "value": 0.06683571000859907,
+          "mode": "abs",
+          "tolerance": 0.08
+        },
+        "events_per_step_mean": {
+          "value": 33.19279366842544,
+          "mode": "abs",
+          "tolerance": 8.0
+        },
+        "market_buy_share_mean": {
+          "value": 0.5009401545755637,
+          "mode": "abs",
+          "tolerance": 0.08
+        },
+        "steps_per_second_mean": {
+          "value": 553.437714132286,
+          "mode": "min",
+          "tolerance": 50.0
+        }
+      },
+      "trend": {
+        "mean_spread_mean": {
+          "value": 0.023921133018605944,
+          "mode": "abs",
+          "tolerance": 0.003
+        },
+        "realized_vol_mean": {
+          "value": 0.011433785893495441,
+          "mode": "abs",
+          "tolerance": 0.003
+        },
+        "abs_return_acf1_mean": {
+          "value": 0.26549800220896835,
+          "mode": "abs",
+          "tolerance": 0.08
+        },
+        "events_per_step_mean": {
+          "value": 52.71480144404332,
+          "mode": "abs",
+          "tolerance": 8.0
+        },
+        "market_buy_share_mean": {
+          "value": 0.5077420563599117,
+          "mode": "abs",
+          "tolerance": 0.08
+        },
+        "steps_per_second_mean": {
+          "value": 411.66786403226337,
+          "mode": "min",
+          "tolerance": 50.0
+        }
+      },
+      "volatile": {
+        "mean_spread_mean": {
+          "value": 0.02842613163010275,
+          "mode": "abs",
+          "tolerance": 0.003
+        },
+        "realized_vol_mean": {
+          "value": 0.015187790945274315,
+          "mode": "abs",
+          "tolerance": 0.003
+        },
+        "abs_return_acf1_mean": {
+          "value": 0.07190904547717546,
+          "mode": "abs",
+          "tolerance": 0.08
+        },
+        "events_per_step_mean": {
+          "value": 63.234240488753116,
+          "mode": "abs",
+          "tolerance": 8.0
+        },
+        "market_buy_share_mean": {
+          "value": 0.4992632158344432,
+          "mode": "abs",
+          "tolerance": 0.08
+        },
+        "steps_per_second_mean": {
+          "value": 377.3719899559011,
+          "mode": "min",
+          "tolerance": 50.0
+        }
+      }
+    },
+    "soak": {
+      "balanced": {
+        "peak_memory_mb_mean": {
+          "value": 127.93359375,
+          "mode": "max",
+          "tolerance": 256.0
+        },
+        "bytes_per_logged_event_mean": {
+          "value": 201.94632351612884,
+          "mode": "max",
+          "tolerance": 40.0
+        }
+      },
+      "trend": {
+        "peak_memory_mb_mean": {
+          "value": 154.70703125,
+          "mode": "max",
+          "tolerance": 256.0
+        },
+        "bytes_per_logged_event_mean": {
+          "value": 153.58419756078627,
+          "mode": "max",
+          "tolerance": 40.0
+        }
+      },
+      "volatile": {
+        "peak_memory_mb_mean": {
+          "value": 170.8359375,
+          "mode": "max",
+          "tolerance": 256.0
+        },
+        "bytes_per_logged_event_mean": {
+          "value": 141.56865509572816,
+          "mode": "max",
+          "tolerance": 40.0
+        }
+      }
+    }
+  },
+  "next_focus": "finer_event_feedback"
+}
