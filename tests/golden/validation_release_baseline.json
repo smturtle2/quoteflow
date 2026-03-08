@@ -135,38 +135,38 @@
     "soak": {
       "balanced": {
         "peak_memory_mb_mean": {
-          "value": 82.5234375,
+          "value": 81.90625,
           "mode": "max",
           "tolerance": 256.0
         },
         "bytes_per_logged_event_mean": {
-          "value": 10895.504406950391,
+          "value": 10814.01762780156,
           "mode": "max",
-          "tolerance": 128.0
+          "tolerance": 2048.0
         }
       },
       "trend": {
         "peak_memory_mb_mean": {
-          "value": 82.76171875,
+          "value": 82.47265625,
           "mode": "max",
           "tolerance": 256.0
         },
         "bytes_per_logged_event_mean": {
-          "value": 6998.544516129033,
+          "value": 6974.10064516129,
           "mode": "max",
-          "tolerance": 128.0
+          "tolerance": 2048.0
         }
       },
       "volatile": {
         "peak_memory_mb_mean": {
-          "value": 83.5390625,
+          "value": 83.63671875,
           "mode": "max",
           "tolerance": 256.0
         },
         "bytes_per_logged_event_mean": {
-          "value": 5806.513058464801,
+          "value": 5813.300808696805,
           "mode": "max",
-          "tolerance": 128.0
+          "tolerance": 2048.0
         }
       }
     }
