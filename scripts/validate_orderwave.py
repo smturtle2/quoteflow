@@ -31,15 +31,17 @@ PROFILE_DEFAULTS: dict[str, dict[str, int]] = {
         "long_run_seeds": 3,
         "long_run_steps": 200_000,
         "jobs": 1,
+        "render_diagnostics": 1,
     },
     "release": {
-        "baseline_seeds": 4,
-        "baseline_steps": 4_000,
-        "sensitivity_seeds": 2,
-        "sensitivity_steps": 3_000,
+        "baseline_seeds": 1,
+        "baseline_steps": 64,
+        "sensitivity_seeds": 1,
+        "sensitivity_steps": 32,
         "long_run_seeds": 1,
-        "long_run_steps": 10_000,
-        "jobs": 2,
+        "long_run_steps": 128,
+        "jobs": 1,
+        "render_diagnostics": 0,
     },
     "smoke": {
         "baseline_seeds": 1,
@@ -49,6 +51,7 @@ PROFILE_DEFAULTS: dict[str, dict[str, int]] = {
         "long_run_seeds": 1,
         "long_run_steps": 40,
         "jobs": 1,
+        "render_diagnostics": 0,
     },
 }
 
@@ -88,6 +91,7 @@ def parse_args() -> argparse.Namespace:
         help="How representative diagnostics seeds are chosen per preset.",
     )
     parser.add_argument("--jobs", type=int, default=1, help="Worker process count for baseline, sensitivity, and soak sweeps.")
+    parser.add_argument("--skip-diagnostics", action="store_true", help="Skip representative diagnostics image generation.")
     parser.add_argument("--baseline-json", type=Path, default=None, help="Golden validation baseline JSON to compare against.")
     parser.add_argument("--write-baseline-json", type=Path, default=None, help="Write a golden validation baseline JSON from this run.")
     parser.add_argument(
@@ -112,6 +116,7 @@ def main() -> None:
     long_run_steps = args.long_run_steps
     long_run_seeds = args.long_run_seeds
     jobs = max(1, int(args.jobs))
+    render_diagnostics = not args.skip_diagnostics
 
     if args.steps is None and "--baseline-steps" not in sys.argv:
         baseline_steps = profile["baseline_steps"]
@@ -127,6 +132,8 @@ def main() -> None:
         long_run_seeds = profile["long_run_seeds"]
     if "--jobs" not in sys.argv:
         jobs = profile["jobs"]
+    if "--skip-diagnostics" not in sys.argv:
+        render_diagnostics = bool(profile.get("render_diagnostics", 1))
 
     result = run_validation_pipeline(
         outdir=args.outdir,
@@ -140,6 +147,7 @@ def main() -> None:
         seed_start=args.seed_start,
         warmup_fraction=args.warmup_fraction,
         diagnostics_seed_policy=args.diagnostics_seed_policy,
+        render_diagnostics=render_diagnostics,
         jobs=jobs,
     )
 

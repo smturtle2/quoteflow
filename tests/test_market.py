@@ -12,12 +12,35 @@ from orderwave import Market
 
 
 def _stable_frame_hash(frame: pd.DataFrame) -> str:
+    def normalize(value: object) -> object:
+        if isinstance(value, dict):
+            return {str(key): normalize(inner) for key, inner in sorted(value.items(), key=lambda item: str(item[0]))}
+        if isinstance(value, (list, tuple)):
+            return [normalize(item) for item in value]
+        if value is pd.NA:
+            return None
+        if hasattr(value, "item") and callable(getattr(value, "item")):
+            try:
+                return normalize(value.item())
+            except Exception:
+                pass
+        try:
+            if pd.isna(value):
+                return None
+        except Exception:
+            pass
+        if isinstance(value, float):
+            if math.isnan(value) or math.isinf(value):
+                return str(value)
+            return round(value, 12)
+        return value
+
     payload = {
         "columns": list(frame.columns),
-        "records": frame.to_dict(orient="records"),
+        "records": [normalize(record) for record in frame.to_dict(orient="records")],
     }
     return hashlib.sha256(
-        json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str, separators=(",", ":")).encode("utf-8")
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
 
 
@@ -138,7 +161,7 @@ def test_book_invariants_hold_over_random_run() -> None:
             "balanced",
             101,
             18,
-            "7882a953e6748d16a553fdf5546f107be1362e70cf187c34d35ce6c490bd3c32",
+            "e1dc3bb0893d8153a714b911d24a2b277c6bc017bf809218220fb696a6aa8b1d",
             "b906ab484dd79001f3ce6eaf8c0226876ed40bc6da3ab25d4492c72b27dbbb6e",
             "46e1346f421983081996a00c0af88cad51171cfda0147645da7dcd7d9402437d",
         ),
@@ -146,15 +169,15 @@ def test_book_invariants_hold_over_random_run() -> None:
             "trend",
             202,
             18,
-            "a271ec0347b445f46eb1d9e64ebb28399ad8317a5a34d305643bd3c1bca867ef",
+            "d86af69003642de675e965e4f619bed4ea9a5e5b23c95dc5d01f698f4f283c27",
             "9050e29b6460757d3f57a1a7bd117f8e512bda4fbcd39055a62abb7f45c5c694",
-            "cde0c2eaa71d658c4cad41f947587142ab596d82a975245cff9287178bf02ab3",
+            "7dcfbfc3028835d5f57400cd510f57304b1ab58843b9e9ca2591ee3a2cc83d97",
         ),
         (
             "volatile",
             303,
             18,
-            "a76beb72cc9767eaeba024ba774e0eed967b2423f696282e3e20f9f1fd7681b1",
+            "ec5b6c18121744a37a09af0ea98d8affb9794f6acf67990ac1097d28dd94adfc",
             "8bfac05cc3d42d9055dd9473b9b4b6fb287984dee5596064c79579a4e15fc55a",
             "be2ab075c56a8bd1d326e987492ece866ac759b6d1a11ea559bde235e8990630",
         ),

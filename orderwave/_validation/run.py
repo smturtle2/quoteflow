@@ -232,6 +232,7 @@ def run_validation_pipeline(
     sensitivity_knobs: Sequence[str] = DEFAULT_SENSITIVITY_KNOBS,
     sensitivity_scales: Sequence[float] = DEFAULT_SENSITIVITY_SCALES,
     diagnostics_seed_policy: str = "median-realized-vol",
+    render_diagnostics: bool = True,
     jobs: int = 1,
 ) -> ValidationPipelineResult:
     """Run the validation pipeline and write repo-standard artifacts."""
@@ -319,31 +320,32 @@ def run_validation_pipeline(
         invariant_failures=invariant_failures,
     )
 
-    diagnostics_seeds = _select_diagnostics_seeds(
-        baseline_metrics,
-        presets=presets,
-        policy=diagnostics_seed_policy,
-    )
     diagnostics_paths: dict[str, Path] = {}
-    for preset, seed in diagnostics_seeds.items():
-        run = run_market_validation(
-            preset=preset,
-            seed=seed,
-            steps=baseline_steps,
-            warmup_fraction=warmup_fraction,
+    if render_diagnostics:
+        diagnostics_seeds = _select_diagnostics_seeds(
+            baseline_metrics,
+            presets=presets,
+            policy=diagnostics_seed_policy,
         )
-        if run.market is None:
-            continue
-        figure = run.market.plot_diagnostics(title=f"{preset} diagnostics ({seed})", figsize=(14, 8.5))
-        path = outdir / f"diagnostics_{preset}_{seed}.png"
-        figure.savefig(path, dpi=180, bbox_inches="tight")
-        diagnostics_paths[preset] = path
-        try:
-            import matplotlib.pyplot as plt
+        for preset, seed in diagnostics_seeds.items():
+            run = run_market_validation(
+                preset=preset,
+                seed=seed,
+                steps=baseline_steps,
+                warmup_fraction=warmup_fraction,
+            )
+            if run.market is None:
+                continue
+            figure = run.market.plot_diagnostics(title=f"{preset} diagnostics ({seed})", figsize=(14, 8.5))
+            path = outdir / f"diagnostics_{preset}_{seed}.png"
+            figure.savefig(path, dpi=180, bbox_inches="tight")
+            diagnostics_paths[preset] = path
+            try:
+                import matplotlib.pyplot as plt
 
-            plt.close(figure)
-        except Exception:  # pragma: no cover
-            pass
+                plt.close(figure)
+            except Exception:  # pragma: no cover
+                pass
 
     artifact_paths = {
         "validation_summary": outdir / "validation_summary.md",
