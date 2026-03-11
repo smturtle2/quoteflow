@@ -10,6 +10,12 @@ from orderwave import Market
 
 지원되는 공개 진입점은 `Market`입니다. `orderwave.model` 같은 내부 모듈은 구현 세부사항이며 안정적인 라이브러리 API가 아닙니다.
 
+typed helper를 직접 import하려면:
+
+```python
+from orderwave.market import BookLevel, MarketSnapshot, SimulationResult
+```
+
 ## `Market`
 
 ```python
@@ -19,10 +25,15 @@ Market(
     levels=5,
     seed=None,
     config=None,
+    *,
+    preset=None,
+    logging_mode=None,
+    liquidity_backstop=None,
 )
 ```
 
 `Market`는 메인 공개 진입점입니다. `step == 0`에서 초기 aggregate order book을 시드하고 compact history를 즉시 기록하며, built-in plotting을 위한 private visual history도 함께 유지합니다.
+`preset`, `logging_mode`, `liquidity_backstop`은 `config` 안의 같은 필드를 덮어쓰는 convenience keyword입니다.
 
 ### `step() -> dict`
 
@@ -32,9 +43,27 @@ Market(
 
 `steps`번 진행하고 마지막 snapshot을 반환합니다.
 
+### `run(steps: int) -> SimulationResult`
+
+`steps`번 진행하고 bundled result object를 반환합니다.
+
+`SimulationResult`에는 다음 필드가 들어 있습니다.
+
+- `snapshot`
+- `history`
+- `event_history`
+- `debug_history`
+- `labeled_event_history`
+
+`history_only` 모드에서는 history는 유지되고 event/debug 계열 필드는 `None`입니다.
+
 ### `get() -> dict`
 
 현재 snapshot을 반환합니다.
+
+### `get_snapshot() -> MarketSnapshot`
+
+현재 snapshot을 typed dataclass로 반환합니다.
 
 주요 필드:
 
@@ -112,6 +141,22 @@ Market(
 - `regime`
 
 이 로그는 샘플링된 의도 이벤트가 아니라 실제로 적용된 이벤트만 기록합니다. `market` 행의 `fills`에는 전체 sweep 경로가 `(price, qty)` 튜플 리스트로 들어갑니다.
+
+이 메서드는 `logging_mode="full"`에서만 동작하며, `history_only`에서는 `RuntimeError`를 발생시킵니다.
+
+### `get_labeled_event_history() -> pandas.DataFrame`
+
+`step`, `event_idx`를 기준으로 applied event history와 aligned debug label을 join한 테이블을 반환합니다.
+
+event 컬럼은 그대로 유지하고, 아래 debug 전용 컬럼이 뒤에 붙습니다.
+
+- `source`
+- `participant_type`
+- `meta_order_id`
+- `meta_order_side`
+- `meta_order_progress`
+- `burst_state`
+- `shock_state`
 
 이 메서드는 `logging_mode="full"`에서만 동작하며, `history_only`에서는 `RuntimeError`를 발생시킵니다.
 
@@ -194,3 +239,11 @@ from orderwave.config import MarketConfig
 - `liquidity_backstop`
 
 `Market`에 전달하는 `config`는 `MarketConfig` 인스턴스나 같은 키를 가진 `dict` 둘 다 가능합니다.
+
+## `orderwave.validation`
+
+`orderwave.validation`은 validation tooling을 위한 지원되는 고급 Python API입니다. 대표 entrypoint는 아래 셋입니다.
+
+- `run_market_validation(...)`
+- `run_sensitivity_grid(...)`
+- `run_validation_pipeline(...)`

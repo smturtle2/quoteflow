@@ -3,6 +3,7 @@ from __future__ import annotations
 import pandas as pd
 
 from orderwave import Market
+from orderwave._engine import _MarketEngine
 from orderwave._model.latent import resolve_session_phase, seasonality_multipliers
 
 
@@ -14,12 +15,13 @@ def test_resolve_session_phase_covers_open_mid_close() -> None:
 
 def test_advance_latent_state_does_not_mutate_public_outputs() -> None:
     market = Market(seed=42)
+    engine = _MarketEngine(market)
     initial_snapshot = market.get()
     initial_history = market.get_history().copy()
 
-    step_state = market._engine._advance_latent_state(market._compute_features())
+    step_state = engine._advance_latent_state(market._compute_features())
 
-    assert market._regime in {"calm", "directional", "stressed"}
+    assert step_state.regime in {"calm", "directional", "stressed"}
     assert step_state.context.session_phase in {"open", "mid", "close"}
     assert market.get() == initial_snapshot
     pd.testing.assert_frame_equal(market.get_history(), initial_history)

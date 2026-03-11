@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "orderwave"
-version = "0.4.13"
+version = "0.4.14"
 description = "An order-flow-driven synthetic market simulator."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -62,6 +62,10 @@ files = [
   "orderwave/market.py",
   "orderwave/_engine.py",
   "orderwave/_model/events.py",
+  "orderwave/_model/samplers.py",
+  "orderwave/_validation/metrics.py",
+  "orderwave/_validation/pipeline.py",
+  "orderwave/_validation/sensitivity.py",
   "orderwave/model.py",
 ]
 follow_imports = "skip"

@@ -5,8 +5,6 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
 
 import json
 
@@ -118,21 +116,22 @@ def main() -> None:
     jobs = max(1, int(args.jobs))
     render_diagnostics = not args.skip_diagnostics
 
-    if args.steps is None and "--baseline-steps" not in sys.argv:
+    cli_args = set(sys.argv[1:])
+    if args.steps is None and "--baseline-steps" not in cli_args:
         baseline_steps = profile["baseline_steps"]
-    if args.seeds is None and "--baseline-seeds" not in sys.argv:
+    if args.seeds is None and "--baseline-seeds" not in cli_args:
         baseline_seeds = profile["baseline_seeds"]
-    if "--sensitivity-steps" not in sys.argv:
+    if "--sensitivity-steps" not in cli_args:
         sensitivity_steps = profile["sensitivity_steps"]
-    if "--sensitivity-seeds" not in sys.argv:
+    if "--sensitivity-seeds" not in cli_args:
         sensitivity_seeds = profile["sensitivity_seeds"]
-    if "--long-run-steps" not in sys.argv:
+    if "--long-run-steps" not in cli_args:
         long_run_steps = profile["long_run_steps"]
-    if "--long-run-seeds" not in sys.argv:
+    if "--long-run-seeds" not in cli_args:
         long_run_seeds = profile["long_run_seeds"]
-    if "--jobs" not in sys.argv:
+    if "--jobs" not in cli_args:
         jobs = profile["jobs"]
-    if "--skip-diagnostics" not in sys.argv:
+    if "--skip-diagnostics" not in cli_args:
         render_diagnostics = bool(profile.get("render_diagnostics", 1))
 
     result = run_validation_pipeline(

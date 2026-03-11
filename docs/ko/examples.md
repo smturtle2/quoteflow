@@ -7,16 +7,15 @@
 ```python
 from orderwave import Market
 
-market = Market(seed=7, config={"preset": "trend"})
-market.gen(steps=2_000)
+market = Market(seed=7, preset="trend")
+result = market.run(steps=2_000)
 
-event_history = market.get_event_history()
-debug_history = market.get_debug_history()
+labeled_events = market.get_labeled_event_history()
 figure = market.plot(levels=8, title="orderwave overview")
 figure.savefig("orderwave-overview.png")
 
-print(event_history.tail())
-print(debug_history.tail())
+print(result.snapshot)
+print(labeled_events.tail())
 ```
 
 ![Overview image](../assets/orderwave-built-in-overview.png)
@@ -48,32 +47,31 @@ diagnostics.savefig("orderwave-diagnostics.png")
 ## Event Flow 확인
 
 ```python
-events = market.get_event_history()
-market_fills = events.loc[events["event_type"] == "market", ["step", "side", "fill_qty", "fills"]]
+labeled_events = market.get_labeled_event_history()
+market_fills = labeled_events.loc[labeled_events["event_type"] == "market", ["step", "side", "fill_qty", "fills"]]
 
 print(market_fills.tail())
 ```
 
-`get_event_history()`는 샘플링된 의도 이벤트가 아니라 실제 적용 순서 그대로의 event stream을 노출합니다. 덕분에 sweep 경로, 취소 압력, quote replenishment를 그대로 검증할 수 있습니다.
+`get_labeled_event_history()`는 실제 적용 순서 그대로의 event stream에 participant, meta-order, shock label을 함께 붙여 반환합니다. 그래서 흔한 event/debug merge 단계를 생략할 수 있습니다.
 
 ## Latent Debug 확인
 
 ```python
-debug = market.get_debug_history()
-joined = market.get_event_history().merge(debug, on=["step", "event_idx"], how="inner")
+joined = market.get_labeled_event_history()
 
 print(joined[["step", "event_idx", "event_type", "participant_type", "meta_order_id", "shock_state"]].tail())
 ```
 
-`get_debug_history()`는 고급 검증용 뷰입니다. 얇은 public event log에는 숨은 원인 라벨을 넣지 않되, participant mix, burst state, meta-order progress, shock state는 별도 테이블에서 감사 가능하게 유지합니다.
+`get_debug_history()`도 그대로 제공되지만, 탐색 분석에서는 joined helper가 더 짧은 기본 경로입니다.
 
 ## Compact history-only 실행
 
 ```python
-fast_market = Market(seed=11, config={"preset": "balanced", "logging_mode": "history_only"})
-fast_market.gen(steps=20_000)
+fast_market = Market(seed=11, preset="balanced", logging_mode="history_only")
+result = fast_market.run(steps=20_000)
 
-summary = fast_market.get_history()
+summary = result.history
 figure = fast_market.plot(title="Compact overview")
 figure.savefig("orderwave-history-only.png")
 ```
@@ -85,7 +83,7 @@ figure.savefig("orderwave-history-only.png")
 저장소에는 [`examples/plot_market_heatmap.py`](https://github.com/smturtle2/quoteflow/blob/main/examples/plot_market_heatmap.py) 예제가 있고, 이제 내부적으로 `Market.plot()`을 직접 호출합니다.
 
 ```bash
-python examples/plot_market_heatmap.py --steps 2000 --preset trend --output artifacts/orderwave_heatmap.png
+python -m examples.plot_market_heatmap --steps 2000 --preset trend --output artifacts/orderwave_heatmap.png
 ```
 
 ## 성능 측정
@@ -93,7 +91,7 @@ python examples/plot_market_heatmap.py --steps 2000 --preset trend --output arti
 엔진 변경 후 처리량, floor check, `full` vs `history_only` 비교를 한 번에 확인하려면 성능 측정 스크립트를 사용하면 됩니다.
 
 ```bash
-python scripts/measure_performance.py --preset balanced --seeds 20 --steps 20000 --outdir artifacts/performance
+python -m scripts.measure_performance --preset balanced --seeds 20 --steps 20000 --outdir artifacts/performance
 ```
 
 생성 산출물:
@@ -108,7 +106,7 @@ python scripts/measure_performance.py --preset balanced --seeds 20 --steps 20000
 단일 throughput 측정이 아니라 synthetic market-state 검증 파이프라인을 돌리려면 validation runner를 사용하면 됩니다.
 
 ```bash
-python scripts/validate_orderwave.py --profile full --jobs 4 --outdir artifacts/validation
+python -m scripts.validate_orderwave --profile full --jobs 4 --outdir artifacts/validation
 ```
 
 runner는 다음 산출물을 생성합니다.
@@ -135,5 +133,5 @@ preset comparison 그림은 문서 전용이지만, 동일한 public simulation 
 ## 문서 이미지 다시 생성
 
 ```bash
-python scripts/render_doc_images.py
+python -m scripts.render_doc_images
 ```

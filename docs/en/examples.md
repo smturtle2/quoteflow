@@ -7,16 +7,15 @@
 ```python
 from orderwave import Market
 
-market = Market(seed=7, config={"preset": "trend"})
-market.gen(steps=2_000)
+market = Market(seed=7, preset="trend")
+result = market.run(steps=2_000)
 
-event_history = market.get_event_history()
-debug_history = market.get_debug_history()
+labeled_events = market.get_labeled_event_history()
 figure = market.plot(levels=8, title="orderwave overview")
 figure.savefig("orderwave-overview.png")
 
-print(event_history.tail())
-print(debug_history.tail())
+print(result.snapshot)
+print(labeled_events.tail())
 ```
 
 ![Overview image](../assets/orderwave-built-in-overview.png)
@@ -48,32 +47,31 @@ These built-in figures are meant to answer three different questions quickly:
 ## Event Flow Inspection
 
 ```python
-events = market.get_event_history()
-market_fills = events.loc[events["event_type"] == "market", ["step", "side", "fill_qty", "fills"]]
+labeled_events = market.get_labeled_event_history()
+market_fills = labeled_events.loc[labeled_events["event_type"] == "market", ["step", "side", "fill_qty", "fills"]]
 
 print(market_fills.tail())
 ```
 
-`get_event_history()` exposes the applied event stream, not just the sampled intents. That makes it easier to inspect sweep paths, cancellation pressure, and quote replenishment in the exact order they hit the book.
+`get_labeled_event_history()` exposes the applied event stream together with aligned participant, meta-order, and shock labels. That removes the usual event/debug merge step from the common inspection flow.
 
 ## Latent Debug Inspection
 
 ```python
-debug = market.get_debug_history()
-joined = market.get_event_history().merge(debug, on=["step", "event_idx"], how="inner")
+joined = market.get_labeled_event_history()
 
 print(joined[["step", "event_idx", "event_type", "participant_type", "meta_order_id", "shock_state"]].tail())
 ```
 
-`get_debug_history()` is the advanced inspection view. It keeps latent driver labels out of the thin public event log while still making participant mix, burst state, meta-order progress, and shock state auditable.
+`get_debug_history()` is still available when you want the raw aligned latent table, but the joined helper is the shorter default for exploratory analysis.
 
 ## Compact History-Only Runs
 
 ```python
-fast_market = Market(seed=11, config={"preset": "balanced", "logging_mode": "history_only"})
-fast_market.gen(steps=20_000)
+fast_market = Market(seed=11, preset="balanced", logging_mode="history_only")
+result = fast_market.run(steps=20_000)
 
-summary = fast_market.get_history()
+summary = result.history
 figure = fast_market.plot(title="Compact overview")
 figure.savefig("orderwave-history-only.png")
 ```
@@ -85,7 +83,7 @@ figure.savefig("orderwave-history-only.png")
 The repository includes [`examples/plot_market_heatmap.py`](https://github.com/smturtle2/quoteflow/blob/main/examples/plot_market_heatmap.py), which calls `Market.plot()` directly.
 
 ```bash
-python examples/plot_market_heatmap.py --steps 2000 --preset trend --output artifacts/orderwave_heatmap.png
+python -m examples.plot_market_heatmap --steps 2000 --preset trend --output artifacts/orderwave_heatmap.png
 ```
 
 ## Performance Measurement
@@ -93,7 +91,7 @@ python examples/plot_market_heatmap.py --steps 2000 --preset trend --output arti
 Use the single performance script when you want a quick throughput check, a floor check, and a `full` vs `history_only` comparison after engine changes.
 
 ```bash
-python scripts/measure_performance.py --preset balanced --seeds 20 --steps 20000 --outdir artifacts/performance
+python -m scripts.measure_performance --preset balanced --seeds 20 --steps 20000 --outdir artifacts/performance
 ```
 
 The script writes:
@@ -108,7 +106,7 @@ The script writes:
 Use the validation runner when you want the synthetic market-state validation pipeline rather than a single throughput snapshot.
 
 ```bash
-python scripts/validate_orderwave.py --profile full --jobs 4 --outdir artifacts/validation
+python -m scripts.validate_orderwave --profile full --jobs 4 --outdir artifacts/validation
 ```
 
 The runner writes:
@@ -135,5 +133,5 @@ Preset comparison remains a docs-only figure generated from the same public simu
 ## Regenerating Docs Images
 
 ```bash
-python scripts/render_doc_images.py
+python -m scripts.render_doc_images
 ```

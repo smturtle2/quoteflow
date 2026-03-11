@@ -6,8 +6,8 @@ import numpy as np
 import pandas as pd
 
 from .metrics import compute_run_metrics
-from .run import run_market_validation
 from .shared import BASELINE_THROUGHPUT_FLOOR, EPSILON
+from .single_run import run_market_validation
 
 
 def benchmark_logging_modes(

@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 
 from orderwave import Market
+from orderwave.market import BookLevel, MarketSnapshot, SimulationResult
 
 
 def _stable_frame_hash(frame: pd.DataFrame) -> str:
@@ -62,13 +63,26 @@ def test_market_initializes_snapshot_and_history() -> None:
     assert market.config.liquidity_backstop == "always"
 
 
+def test_get_snapshot_exposes_typed_view_and_round_trips_to_dict() -> None:
+    market = Market(seed=42, preset="trend")
+
+    snapshot = market.get_snapshot()
+
+    assert isinstance(snapshot, MarketSnapshot)
+    assert snapshot.to_dict() == market.get()
+    assert all(isinstance(level, BookLevel) for level in snapshot.bids)
+    assert all(isinstance(level, BookLevel) for level in snapshot.asks)
+
+
 def test_market_hides_internal_engine_stage_methods() -> None:
     market_attrs = set(dir(Market))
+    market = Market(seed=1)
 
     assert "advance_latent_state" not in market_attrs
     assert "sample_step_events" not in market_attrs
     assert "apply_step_events" not in market_attrs
     assert "finalize_step" not in market_attrs
+    assert hasattr(market, "_engine") is False
 
 
 def test_orderwave_model_stub_rejects_internal_symbol_access() -> None:
@@ -105,6 +119,20 @@ def test_same_seed_reproduces_and_other_seed_differs() -> None:
     assert not market_a.get_event_history().equals(market_c.get_event_history())
 
 
+def test_public_constructor_kwargs_override_nested_config() -> None:
+    market = Market(
+        seed=7,
+        config={"preset": "balanced", "logging_mode": "full", "liquidity_backstop": "always"},
+        preset="trend",
+        logging_mode="history_only",
+        liquidity_backstop="off",
+    )
+
+    assert market.config.preset == "trend"
+    assert market.config.logging_mode == "history_only"
+    assert market.config.liquidity_backstop == "off"
+
+
 def test_history_contains_summary_columns_only() -> None:
     market = Market(seed=7)
     market.gen(steps=5)
@@ -138,14 +166,18 @@ def test_history_contains_summary_columns_only() -> None:
 
 
 def test_history_only_mode_preserves_summary_but_disables_event_and_debug_apis() -> None:
-    full_market = Market(seed=13, config={"preset": "balanced", "logging_mode": "full"})
-    compact_market = Market(seed=13, config={"preset": "balanced", "logging_mode": "history_only"})
+    full_market = Market(seed=13, preset="balanced", logging_mode="full")
+    compact_market = Market(seed=13, preset="balanced", logging_mode="history_only")
 
     full_market.gen(steps=40)
-    compact_market.gen(steps=40)
+    compact_result = compact_market.run(steps=40)
 
     pd.testing.assert_frame_equal(full_market.get_history(), compact_market.get_history())
     assert compact_market.get()["step"] == full_market.get()["step"]
+    assert isinstance(compact_result, SimulationResult)
+    assert compact_result.event_history is None
+    assert compact_result.debug_history is None
+    assert compact_result.labeled_event_history is None
 
     with pytest.raises(RuntimeError, match="logging_mode='full'"):
         compact_market.get_event_history()
@@ -153,6 +185,28 @@ def test_history_only_mode_preserves_summary_but_disables_event_and_debug_apis()
         compact_market.get_debug_history()
     with pytest.raises(RuntimeError, match="logging_mode='full'"):
         compact_market.plot_diagnostics()
+
+
+def test_run_returns_bundle_with_labeled_event_history() -> None:
+    market = Market(seed=21, preset="volatile")
+
+    result = market.run(steps=35)
+
+    assert isinstance(result, SimulationResult)
+    assert result.snapshot.to_dict() == market.get()
+    pd.testing.assert_frame_equal(result.history, market.get_history())
+    assert result.event_history is not None
+    assert result.debug_history is not None
+    assert result.labeled_event_history is not None
+    assert list(result.labeled_event_history.columns[-7:]) == [
+        "source",
+        "participant_type",
+        "meta_order_id",
+        "meta_order_side",
+        "meta_order_progress",
+        "burst_state",
+        "shock_state",
+    ]
 
 
 def test_book_invariants_hold_over_random_run() -> None:

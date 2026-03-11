@@ -32,15 +32,6 @@ def price_to_tick(price: float, tick_size: float) -> int:
 def tick_to_price(tick: float, tick_size: float) -> float:
     return round_price(float(tick) * float(tick_size), tick_size)
 
-
-def sigmoid(value: float) -> float:
-    if value >= 0.0:
-        exp_term = math.exp(-value)
-        return 1.0 / (1.0 + exp_term)
-    exp_term = math.exp(value)
-    return exp_term / (1.0 + exp_term)
-
-
 def stable_softmax(scores: np.ndarray) -> np.ndarray:
     finite_mask = np.isfinite(scores)
     if not finite_mask.any():

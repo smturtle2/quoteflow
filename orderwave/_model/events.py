@@ -53,9 +53,12 @@ class CancelEvent(TypedDict):
 StepEvent = LimitEvent | MarketEvent | CancelEvent
 
 
-class AppliedEventResult(TypedDict):
-    side: EventSide
-    fill_qty: float
+class EventStateSnapshot(TypedDict):
+    mid_price: float
+    spread_ticks: float
+    depth_imbalance: float
+    best_bid_qty: float
+    best_ask_qty: float
 
 
 class EventLogRecord(TypedDict):
@@ -70,8 +73,8 @@ class EventLogRecord(TypedDict):
 
 
 __all__ = [
-    "AppliedEventResult",
     "CancelEvent",
+    "EventStateSnapshot",
     "EventLogRecord",
     "EventSide",
     "LimitEvent",
@@ -82,8 +85,11 @@ __all__ = [
     "is_limit_event",
     "is_market_event",
     "make_cancel_event",
+    "make_cancel_log_record",
     "make_limit_event",
+    "make_limit_log_record",
     "make_market_event",
+    "make_market_log_record",
 ]
 
 
@@ -174,4 +180,63 @@ def build_debug_event_record(event: StepEvent) -> _DebugEventRecord:
         "participant_type": event["participant_type"],
         "meta_order_id": event["meta_order_id"],
         "meta_order_side": event["meta_order_side"],
+    }
+
+
+def make_limit_log_record(
+    *,
+    side: ModelSide,
+    level: int,
+    price: float,
+    qty: float,
+) -> EventLogRecord:
+    return {
+        "event_type": "limit",
+        "side": side,
+        "level": int(level),
+        "price": float(price),
+        "requested_qty": float(qty),
+        "applied_qty": float(qty),
+        "fill_qty": 0.0,
+        "fills": (),
+    }
+
+
+def make_market_log_record(
+    *,
+    side: AggressorSide,
+    price: float,
+    requested_qty: float,
+    applied_qty: float,
+    fills: tuple[tuple[float, float], ...],
+) -> EventLogRecord:
+    return {
+        "event_type": "market",
+        "side": side,
+        "level": None,
+        "price": float(price),
+        "requested_qty": float(requested_qty),
+        "applied_qty": float(applied_qty),
+        "fill_qty": float(applied_qty),
+        "fills": fills,
+    }
+
+
+def make_cancel_log_record(
+    *,
+    side: ModelSide,
+    level: int | None,
+    price: float,
+    requested_qty: float,
+    applied_qty: float,
+) -> EventLogRecord:
+    return {
+        "event_type": "cancel",
+        "side": side,
+        "level": None if level is None else int(level),
+        "price": float(price),
+        "requested_qty": float(requested_qty),
+        "applied_qty": float(applied_qty),
+        "fill_qty": 0.0,
+        "fills": (),
     }

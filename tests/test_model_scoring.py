@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 
 from orderwave import Market
+from orderwave._engine import _MarketEngine
 from orderwave._model.scoring import score_limit_levels
 
 
@@ -17,7 +18,7 @@ def test_score_limit_levels_returns_normalized_probabilities() -> None:
         features=features,
         hidden_fair_tick=market._hidden_fair_tick,
         regime=market._regime,
-        context=market._engine._current_context(),
+        context=_MarketEngine(market)._current_context(),
         config=market.config,
         params=market._params,
     )

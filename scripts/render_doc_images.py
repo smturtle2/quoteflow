@@ -1,12 +1,9 @@
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
 
 import matplotlib
 
@@ -14,12 +11,12 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from orderwave import Market
-from orderwave.visualization import _plot_preset_comparison
+from scripts._docs_plots import plot_preset_comparison
 
 
 def build_market(*, preset: str, seed: int, steps: int, levels: int) -> Market:
-    market = Market(seed=seed, levels=levels, config={"preset": preset})
-    market.gen(steps)
+    market = Market(seed=seed, levels=levels, preset=preset)
+    market.run(steps)
     return market
 
 
@@ -68,7 +65,7 @@ def main() -> None:
         "trend": build_market(preset="trend", seed=42, steps=480, levels=6).get_history(),
         "volatile": build_market(preset="volatile", seed=42, steps=480, levels=6).get_history(),
     }
-    preset_figure = _plot_preset_comparison(
+    preset_figure = plot_preset_comparison(
         preset_histories,
         title="Preset behaviors at a glance",
         figsize=(16, 4.8),

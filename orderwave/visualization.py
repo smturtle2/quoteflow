@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from array import array
 from dataclasses import dataclass
-from typing import Mapping, Sequence
+from typing import Sequence
 
 import numpy as np
 import pandas as pd
@@ -114,23 +114,6 @@ class DepthHeatmap:
     ask_levels: int
     row_labels: list[str]
     signed_depth: np.ndarray
-
-
-def capture_visual_history_row(book: OrderBook, *, step: int, depth: int) -> VisualHistoryRow:
-    """Capture a fixed-width book slice for later plotting."""
-
-    if depth <= 0:
-        raise ValueError("depth must be positive")
-
-    bid_qty = np.full(depth, np.nan, dtype=float)
-    ask_qty = np.full(depth, np.nan, dtype=float)
-
-    for index, (_, qty) in enumerate(book.top_levels("bid", depth)):
-        bid_qty[index] = float(qty)
-    for index, (_, qty) in enumerate(book.top_levels("ask", depth)):
-        ask_qty[index] = float(qty)
-
-    return VisualHistoryRow(step=int(step), bid_qty=bid_qty, ask_qty=ask_qty)
 
 
 def build_depth_heatmap(rows: Sequence[VisualHistoryRow] | VisualHistoryStore, *, levels: int) -> DepthHeatmap:
@@ -464,73 +447,6 @@ def plot_market_diagnostics(
     axes[2, 1].set_ylabel("Share")
     axes[2, 1].set_ylim(0.0, max(1.0, max(occupancy_values, default=0.0) * 1.15))
     axes[2, 1].grid(axis="y", alpha=0.25, linestyle="--")
-
-    return figure
-
-
-def _plot_preset_comparison(
-    histories: Mapping[str, pd.DataFrame],
-    *,
-    title: str | None = None,
-    figsize: tuple[float, float] | None = None,
-):
-    """Render a docs-only preset comparison figure."""
-
-    plt = _configure_matplotlib()
-    colors = {
-        "balanced": "#0f766e",
-        "trend": "#f97316",
-        "volatile": "#dc2626",
-    }
-    ordered = [name for name in ("balanced", "trend", "volatile") if name in histories]
-    if not ordered:
-        raise ValueError("histories must include at least one preset")
-
-    figure, axes = plt.subplots(1, len(ordered), figsize=figsize or (16, 4.8), constrained_layout=True)
-    axes_array = np.atleast_1d(axes)
-    figure.suptitle(title or "Preset behaviors at a glance", fontsize=16, fontweight="bold")
-    legend_handles = None
-    legend_labels = None
-
-    for axis, preset in zip(axes_array, ordered):
-        history = histories[preset]
-        steps = history["step"].to_numpy()
-        mid = history["mid_price"].to_numpy()
-        last = history["last_price"].to_numpy()
-        spread = history["spread"].to_numpy()
-        mid_ret = history["mid_price"].diff().fillna(0.0)
-        color = colors[preset]
-
-        axis.plot(steps, mid, color=color, linewidth=1.8, label="Mid")
-        axis.plot(steps, last, color="#0f172a", linewidth=0.95, alpha=0.75, label="Last")
-        axis.fill_between(steps, mid - (spread / 2.0), mid + (spread / 2.0), color=color, alpha=0.12)
-        axis.set_title(preset.capitalize())
-        axis.set_xlabel("Step")
-        axis.grid(alpha=0.25, linestyle="--")
-        if axis is axes_array[0]:
-            axis.set_ylabel("Price")
-
-        stats = (
-            f"mean spread: {spread.mean():.3f}\n"
-            f"ret std: {mid_ret.std():.3f}\n"
-            f"range: {mid.max() - mid.min():.3f}"
-        )
-        axis.text(
-            0.03,
-            0.97,
-            stats,
-            transform=axis.transAxes,
-            ha="left",
-            va="top",
-            fontsize=9,
-            color="#334155",
-            bbox={"facecolor": "white", "edgecolor": "#e2e8f0", "boxstyle": "round,pad=0.35"},
-        )
-        if legend_handles is None:
-            legend_handles, legend_labels = axis.get_legend_handles_labels()
-
-    if legend_handles is not None and legend_labels is not None:
-        figure.legend(legend_handles, legend_labels, loc="upper center", bbox_to_anchor=(0.5, 0.92), ncol=2, frameon=False)
 
     return figure
 

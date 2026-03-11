@@ -6,11 +6,16 @@ from typing import TYPE_CHECKING
 from orderwave._model.backstop import apply_liquidity_backstop, ensure_two_sided_book
 from orderwave._model.events import (
     EventLogRecord,
+    EventSide,
+    EventStateSnapshot,
     StepEvent,
     build_debug_event_record,
     is_cancel_event,
     is_limit_event,
     is_market_event,
+    make_cancel_log_record,
+    make_limit_log_record,
+    make_market_log_record,
 )
 from orderwave._model.latent import (
     advance_directional_anchor,
@@ -58,9 +63,9 @@ class _StepOutcome:
 
 @dataclass(frozen=True)
 class _AppliedEvent:
-    side: str
+    side: EventSide
     fill_qty: float
-    event_state: dict[str, float]
+    event_state: EventStateSnapshot
     record: EventLogRecord
 
 
@@ -236,16 +241,12 @@ class _MarketEngine:
                 side=event["side"],
                 fill_qty=0.0,
                 event_state=event_state,
-                record={
-                    "event_type": "limit",
-                    "side": event["side"],
-                    "level": event["level"],
-                    "price": tick_to_price(applied_tick, market.tick_size),
-                    "requested_qty": float(event["qty"]),
-                    "applied_qty": float(event["qty"]),
-                    "fill_qty": 0.0,
-                    "fills": (),
-                },
+                record=make_limit_log_record(
+                    side=event["side"],
+                    level=event["level"],
+                    price=tick_to_price(applied_tick, market.tick_size),
+                    qty=event["qty"],
+                ),
             )
 
         if is_market_event(event):
@@ -274,16 +275,13 @@ class _MarketEngine:
                 side=event["side"],
                 fill_qty=float(result.filled_qty),
                 event_state=event_state,
-                record={
-                    "event_type": "market",
-                    "side": event["side"],
-                    "level": None,
-                    "price": tick_to_price(result.last_fill_tick, market.tick_size),
-                    "requested_qty": float(event["qty"]),
-                    "applied_qty": float(result.filled_qty),
-                    "fill_qty": float(result.filled_qty),
-                    "fills": fills,
-                },
+                record=make_market_log_record(
+                    side=event["side"],
+                    price=tick_to_price(result.last_fill_tick, market.tick_size),
+                    requested_qty=event["qty"],
+                    applied_qty=result.filled_qty,
+                    fills=fills,
+                ),
             )
 
         if is_cancel_event(event):
@@ -304,16 +302,13 @@ class _MarketEngine:
                 side=event["side"],
                 fill_qty=0.0,
                 event_state=event_state,
-                record={
-                    "event_type": "cancel",
-                    "side": event["side"],
-                    "level": event["level"],
-                    "price": tick_to_price(event["tick"], market.tick_size),
-                    "requested_qty": float(event["qty"]),
-                    "applied_qty": float(canceled_qty),
-                    "fill_qty": 0.0,
-                    "fills": (),
-                },
+                record=make_cancel_log_record(
+                    side=event["side"],
+                    level=event["level"],
+                    price=tick_to_price(event["tick"], market.tick_size),
+                    requested_qty=event["qty"],
+                    applied_qty=canceled_qty,
+                ),
             )
 
         return None
@@ -405,7 +400,7 @@ class _MarketEngine:
         level: int | None,
         applied_qty: float,
         fill_qty: float,
-        event_state: dict[str, float],
+        event_state: EventStateSnapshot,
     ) -> None:
         market = self._market
         market._excitation = update_excitation_state(
@@ -439,7 +434,7 @@ class _MarketEngine:
             params=market._params,
         )
 
-    def _compute_event_state(self) -> dict[str, float]:
+    def _compute_event_state(self) -> EventStateSnapshot:
         market = self._market
         best_bid_qty, best_ask_qty, bid_depth, ask_depth = market._book.top_depth_state(market.levels)
         mid_price = tick_to_price((market._book.best_bid_tick + market._book.best_ask_tick) / 2.0, market.tick_size)
@@ -457,7 +452,7 @@ class _MarketEngine:
         *,
         event_idx: int,
         record: EventLogRecord,
-        event_state: dict[str, float],
+        event_state: EventStateSnapshot,
     ) -> None:
         market = self._market
         market._history.record_event(

@@ -19,22 +19,20 @@ pip install -e .[dev]
 ```python
 from orderwave import Market
 
-market = Market(seed=42, config={"preset": "trend"})
-market.gen(steps=1_000)
+market = Market(seed=42, preset="trend")
+result = market.run(steps=1_000)
 
-snapshot = market.get()
+snapshot = market.get_snapshot()
 history = market.get_history()
-events = market.get_event_history()
-debug = market.get_debug_history()
+events = market.get_labeled_event_history()
 figure = market.plot()
 ```
 
 For lighter runs where you only need compact history plus overview/book plots:
 
 ```python
-fast_market = Market(seed=7, config={"preset": "balanced", "logging_mode": "history_only"})
-fast_market.gen(steps=10_000)
-summary = fast_market.get_history()
+fast_market = Market(seed=7, preset="balanced", logging_mode="history_only")
+summary = fast_market.run(steps=10_000).history
 overview = fast_market.plot()
 ```
 
@@ -47,6 +45,10 @@ Market(
     levels=5,
     seed=None,
     config=None,
+    *,
+    preset=None,
+    logging_mode=None,
+    liquidity_backstop=None,
 )
 ```
 
@@ -55,6 +57,9 @@ Market(
 - `levels`: visible depth returned by `get()` and default plot depth
 - `seed`: deterministic random seed
 - `config`: `dict` or `orderwave.config.MarketConfig`
+- `preset`: shortcut for the most common config selection
+- `logging_mode`: shortcut for `config["logging_mode"]`
+- `liquidity_backstop`: shortcut for `config["liquidity_backstop"]`
 - `config["logging_mode"]`: `"full"` or `"history_only"`
 - `config["liquidity_backstop"]`: `"always"` (default), `"on_empty"`, or `"off"`
 
@@ -93,6 +98,8 @@ The current state returned by `get()` is intentionally compact.
 
 - `get_event_history()` returns the applied event stream only
 - `get_debug_history()` returns participant type, meta-order progress, burst state, and shock state aligned to the same `step` and `event_idx` keys
+- `get_labeled_event_history()` returns the joined event/debug table without manual `merge(...)`
+- `run()` returns a `SimulationResult` bundle with the typed snapshot plus available tables
 - `history_only` mode keeps `get_history()`, `plot()`, and `plot_book()`, but disables `get_event_history()`, `get_debug_history()`, and `plot_diagnostics()`
 - default `liquidity_backstop="always"` keeps the synthetic book two-sided, restores minimum visible depth after each step, and keeps the default path observable
 

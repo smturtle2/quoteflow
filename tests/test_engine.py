@@ -3,11 +3,12 @@ from __future__ import annotations
 import pandas as pd
 
 from orderwave import Market
+from orderwave._engine import _MarketEngine
 
 
 def test_engine_advance_and_sample_do_not_mutate_public_state() -> None:
     market = Market(seed=42)
-    engine = market._engine
+    engine = _MarketEngine(market)
 
     initial_snapshot = market.get()
     initial_history = market.get_history().copy()
@@ -22,7 +23,7 @@ def test_engine_advance_and_sample_do_not_mutate_public_state() -> None:
 
 def test_engine_apply_and_finalize_advance_history_once() -> None:
     market = Market(seed=17, config={"preset": "balanced"})
-    engine = market._engine
+    engine = _MarketEngine(market)
 
     step_state = engine._advance_latent_state(market._compute_features())
     sampled_events = engine._sample_step_events(step_state)

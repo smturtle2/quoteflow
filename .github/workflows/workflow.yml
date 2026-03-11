@@ -119,7 +119,7 @@ jobs:
 
       - name: Run release validation regression
         run: >
-          python scripts/validate_orderwave.py
+          python -m scripts.validate_orderwave
           --profile release
           --outdir artifacts/validation-release
           --baseline-json tests/golden/validation_release_baseline.json

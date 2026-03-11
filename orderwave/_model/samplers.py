@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Literal, Sequence
+from typing import Literal, Sequence, TypeVar
 
 import numpy as np
 
@@ -21,6 +21,10 @@ from .scoring import (
 )
 from .types import AggressorSide, EngineContext, ModelSide, ParticipantType
 
+_KeyT = TypeVar("_KeyT")
+_LeftKeyT = TypeVar("_LeftKeyT")
+_RightKeyT = TypeVar("_RightKeyT")
+
 
 def sample_participant_events(
     *,
@@ -38,11 +42,10 @@ def sample_participant_events(
     market_budget = _sample_event_budget("market", regime=regime, context=context, config=config, params=params, rng=rng)
     cancel_budget = _sample_event_budget("cancel", regime=regime, context=context, config=config, params=params, rng=rng)
 
-    for side, side_count in _allocate_counts(
+    for side, side_count in _allocate_key_counts(
         [
             (
                 "bid",
-                None,
                 _aggregate_limit_side_weight(
                     "bid",
                     features=features,
@@ -54,7 +57,6 @@ def sample_participant_events(
             ),
             (
                 "ask",
-                None,
                 _aggregate_limit_side_weight(
                     "ask",
                     features=features,
@@ -83,11 +85,10 @@ def sample_participant_events(
             )
         )
 
-    for side, side_count in _allocate_counts(
+    for side, side_count in _allocate_key_counts(
         [
             (
                 "buy",
-                None,
                 _aggregate_market_side_weight(
                     "buy",
                     features=features,
@@ -100,7 +101,6 @@ def sample_participant_events(
             ),
             (
                 "sell",
-                None,
                 _aggregate_market_side_weight(
                     "sell",
                     features=features,
@@ -130,7 +130,6 @@ def sample_participant_events(
     cancel_specs = [
         (
             side,
-            None,
             _aggregate_cancel_side_weight(
                 side,
                 book=book,
@@ -144,7 +143,7 @@ def sample_participant_events(
         for side in ("bid", "ask")
         if book.all_levels(side)
     ]
-    for side, side_count in _allocate_counts(cancel_specs, cancel_budget, rng=rng):
+    for side, side_count in _allocate_key_counts(cancel_specs, cancel_budget, rng=rng):
         events.extend(
             _sample_cancel_budget_events(
                 _participant_mix_specs("cancel", side, context=context, config=config),
@@ -207,26 +206,33 @@ def _sample_event_budget(
     return int(min(hard_cap, rng.poisson(lam)))
 
 
-def _allocate_counts(
-    specs: Sequence[tuple[Any, Any, float]],
+def _allocate_key_counts(
+    specs: Sequence[tuple[_KeyT, float]],
     total_events: int,
     *,
     rng: np.random.Generator,
-) -> list[tuple[Any, int]]:
+) -> list[tuple[_KeyT, int]]:
     if total_events <= 0:
         return []
-    positive_specs = [(left, right, weight) for left, right, weight in specs if weight > 0.0]
+    positive_specs = [(key, weight) for key, weight in specs if weight > 0.0]
     if not positive_specs:
         return []
-    weights = np.array([weight for _, _, weight in positive_specs], dtype=float)
+    weights = np.array([weight for _, weight in positive_specs], dtype=float)
     allocations = rng.multinomial(total_events, weights / weights.sum())
-    if all(right is None for _, right, _ in positive_specs):
-        return [(left, int(count)) for (left, _, _), count in zip(positive_specs, allocations) if count > 0]
     return [
-        ((left, right), int(count))
-        for (left, right, _), count in zip(positive_specs, allocations)
+        (key, int(count))
+        for (key, _), count in zip(positive_specs, allocations)
         if count > 0
     ]
+
+
+def _allocate_pair_counts(
+    specs: Sequence[tuple[_LeftKeyT, _RightKeyT, float]],
+    total_events: int,
+    *,
+    rng: np.random.Generator,
+) -> list[tuple[tuple[_LeftKeyT, _RightKeyT], int]]:
+    return _allocate_key_counts([((left, right), weight) for left, right, weight in specs], total_events, rng=rng)
 
 
 def _participant_mix_specs(
@@ -301,7 +307,7 @@ def _sample_limit_budget_events(
     params: PresetParams,
 ) -> list[StepEvent]:
     events: list[StepEvent] = []
-    for participant_key, count in _allocate_counts(specs, total_events, rng=rng):
+    for participant_key, count in _allocate_pair_counts(specs, total_events, rng=rng):
         participant_type, side = participant_key
         levels, probabilities = score_limit_levels(
             side,
@@ -352,7 +358,7 @@ def _sample_market_budget_events(
     params: PresetParams,
 ) -> list[StepEvent]:
     events: list[StepEvent] = []
-    for participant_key, count in _allocate_counts(specs, total_events, rng=rng):
+    for participant_key, count in _allocate_pair_counts(specs, total_events, rng=rng):
         participant_type, side = participant_key
         meta_order = context.meta_orders.get(side)
         source = "meta_order" if participant_type == "informed_meta" and meta_order is not None else "organic"
@@ -393,7 +399,7 @@ def _sample_cancel_budget_events(
     params: PresetParams,
 ) -> list[StepEvent]:
     events: list[StepEvent] = []
-    for participant_key, count in _allocate_counts(specs, total_events, rng=rng):
+    for participant_key, count in _allocate_pair_counts(specs, total_events, rng=rng):
         participant_type, side = participant_key
         levels = book.all_levels(side)
         if not levels:

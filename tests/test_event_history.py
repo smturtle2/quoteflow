@@ -76,6 +76,21 @@ def test_debug_history_aligns_one_to_one_with_event_history() -> None:
     assert set(debug["session_phase"].unique()) <= {"open", "mid", "close"}
 
 
+def test_labeled_event_history_helper_matches_manual_merge() -> None:
+    market = Market(seed=19, preset="trend")
+    market.run(steps=60)
+
+    labeled = market.get_labeled_event_history()
+    manual = market.get_event_history().merge(
+        market.get_debug_history().drop(columns=["day", "session_step", "session_phase"]),
+        on=["step", "event_idx"],
+        how="inner",
+        validate="one_to_one",
+    )
+
+    pd.testing.assert_frame_equal(labeled, manual)
+
+
 def test_trade_strength_matches_execution_only_ema() -> None:
     market = Market(seed=7, config={"preset": "volatile"})
     market.gen(steps=100)

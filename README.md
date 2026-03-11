@@ -39,21 +39,20 @@ pip install -e .[dev]
 ```python
 from orderwave import Market
 
-market = Market(seed=42, config={"preset": "trend"})
-market.gen(steps=1_000)
+market = Market(seed=42, preset="trend")
+result = market.run(steps=1_000)
 
-snapshot = market.get()
+snapshot = market.get_snapshot()
 history = market.get_history()
-events = market.get_event_history()
-debug = market.get_debug_history()
+events = market.get_labeled_event_history()
 overview = market.plot()
 book = market.plot_book()
 diagnostics = market.plot_diagnostics()
 
-print(snapshot["session_phase"], snapshot["mid_price"], snapshot["best_bid"], snapshot["best_ask"])
+print(snapshot.session_phase, snapshot.mid_price, snapshot.best_bid, snapshot.best_ask)
 print(history.tail())
 print(events.tail())
-print(debug.tail())
+print(result.debug_history.tail())
 
 overview.savefig("orderwave-overview.png")
 ```
@@ -61,9 +60,8 @@ overview.savefig("orderwave-overview.png")
 For lighter long runs where you only need summary history, visible book snapshots, and trade strength:
 
 ```python
-fast_market = Market(seed=7, config={"preset": "balanced", "logging_mode": "history_only"})
-fast_market.gen(steps=10_000)
-summary = fast_market.get_history()
+fast_market = Market(seed=7, preset="balanced", logging_mode="history_only")
+summary = fast_market.run(steps=10_000).history
 figure = fast_market.plot()
 ```
 
@@ -72,7 +70,7 @@ figure = fast_market.plot()
 Use the single performance runner when you want a quick throughput check plus a `full` vs `history_only` logging comparison.
 
 ```bash
-python scripts/measure_performance.py --preset balanced --seeds 20 --steps 20000 --outdir artifacts/performance
+python -m scripts.measure_performance --preset balanced --seeds 20 --steps 20000 --outdir artifacts/performance
 ```
 
 The runner writes:
@@ -87,7 +85,7 @@ The runner writes:
 The repository also includes a validation runner for preset sweeps, knob sensitivity, reproducibility checks, and soak tests.
 
 ```bash
-python scripts/validate_orderwave.py --profile full --jobs 4 --outdir artifacts/validation
+python -m scripts.validate_orderwave --profile full --jobs 4 --outdir artifacts/validation
 ```
 
 The runner writes:
@@ -111,18 +109,23 @@ The next engine improvement target is intentionally narrow: finer intra-step eve
 | --- | --- |
 | `step()` | Run one micro-batch and return the latest snapshot |
 | `gen(steps=n)` | Run `n` micro-batches and return the latest snapshot |
+| `run(steps=n)` | Run `n` micro-batches and return a bundled typed result |
 | `get()` | Return the current snapshot |
+| `get_snapshot()` | Return the current snapshot as a typed dataclass |
 | `get_history()` | Return compact `pandas.DataFrame` history |
 | `get_event_history()` | Return the applied event log as a `pandas.DataFrame` |
 | `get_debug_history()` | Return event-aligned latent debug history for advanced inspection |
+| `get_labeled_event_history()` | Return event history joined with latent debug labels |
 | `plot()` | Render price, spread, trade strength, and visible-book heatmap |
 | `plot_book()` | Render the current order book on a real price axis |
 | `plot_diagnostics()` | Render session, excitation, imbalance, spread/volatility, resiliency, and occupancy diagnostics |
 
 Advanced configuration is available through `orderwave.config.MarketConfig`.
+Common settings can also be passed directly as `Market(..., preset="trend", logging_mode="history_only", liquidity_backstop="off")`.
 
 `logging_mode="history_only"` keeps summary history plus overview/book plotting data, but disables `get_event_history()`, `get_debug_history()`, and `plot_diagnostics()`.
-Default `liquidity_backstop="always"` keeps the synthetic market two-sided, restores minimum visible depth after each step, and keeps the baseline path observable by default.
+Default `liquidity_backstop="always"` keeps the synthetic market two-sided and observable by default.
+It also restores minimum visible depth after each step so the baseline path stays readable.
 `"on_empty"` and `"off"` are available when you want to allow thinner or missing post-step liquidity.
 
 ## Built-in Visualization
@@ -151,6 +154,8 @@ The overview heatmap keeps signed depth. Ask liquidity is red, bid liquidity is 
 
 `trade_strength` is an execution-only signed imbalance. It is computed from an EWMA of realized aggressor buy and sell volume, so quote-only book changes do not move it.
 
+`Market.run()` returns a `SimulationResult` bundle with the typed snapshot plus whichever tables are available for the current logging mode.
+
 Important distinction:
 
 - `mid_price` can move when quotes improve, cancel, or get depleted
@@ -174,3 +179,5 @@ Core guarantees:
 - [Examples](https://github.com/smturtle2/quoteflow/blob/main/docs/en/examples.md)
 - [Release guide](https://github.com/smturtle2/quoteflow/blob/main/docs/en/releasing.md)
 - [한국어 문서 인덱스](https://github.com/smturtle2/quoteflow/blob/main/docs/ko/README.md)
+
+`orderwave.validation` is also a supported advanced API for reproducibility checks, sensitivity sweeps, and validation pipelines.

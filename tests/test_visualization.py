@@ -113,7 +113,7 @@ def test_cli_examples_render_with_agg_backend(tmp_path: Path) -> None:
     plot_out = tmp_path / "overview.png"
 
     render_docs = subprocess.run(
-        [sys.executable, "scripts/render_doc_images.py", "--outdir", str(doc_out)],
+        [sys.executable, "-m", "scripts.render_doc_images", "--outdir", str(doc_out)],
         cwd=Path(__file__).resolve().parents[1],
         check=False,
         capture_output=True,
@@ -121,7 +121,7 @@ def test_cli_examples_render_with_agg_backend(tmp_path: Path) -> None:
         env=env,
     )
     render_example = subprocess.run(
-        [sys.executable, "examples/plot_market_heatmap.py", "--steps", "40", "--output", str(plot_out)],
+        [sys.executable, "-m", "examples.plot_market_heatmap", "--steps", "40", "--output", str(plot_out)],
         cwd=Path(__file__).resolve().parents[1],
         check=False,
         capture_output=True,

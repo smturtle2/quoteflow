@@ -10,6 +10,12 @@ from orderwave import Market
 
 `Market` is the supported public entry point. Internal modules such as `orderwave.model` are implementation details rather than stable library API.
 
+For typed helpers:
+
+```python
+from orderwave.market import BookLevel, MarketSnapshot, SimulationResult
+```
+
 ## `Market`
 
 ```python
@@ -19,10 +25,15 @@ Market(
     levels=5,
     seed=None,
     config=None,
+    *,
+    preset=None,
+    logging_mode=None,
+    liquidity_backstop=None,
 )
 ```
 
 `Market` is the main public entry point. It seeds an initial aggregate order book at `step == 0`, records compact history immediately, and keeps a private visual history for built-in plotting.
+`preset`, `logging_mode`, and `liquidity_backstop` are convenience keywords that override the same fields inside `config`.
 
 ### `step() -> dict`
 
@@ -32,9 +43,27 @@ Advance the simulator by one micro-batch and return the latest snapshot.
 
 Advance the simulator by `steps` micro-batches and return the latest snapshot.
 
+### `run(steps: int) -> SimulationResult`
+
+Advance the simulator by `steps` micro-batches and return a bundled result object.
+
+`SimulationResult` contains:
+
+- `snapshot`
+- `history`
+- `event_history`
+- `debug_history`
+- `labeled_event_history`
+
+In `history_only` mode, the history table remains available and the event/debug fields are `None`.
+
 ### `get() -> dict`
 
 Return the current snapshot.
+
+### `get_snapshot() -> MarketSnapshot`
+
+Return the current snapshot as a typed dataclass.
 
 Snapshot fields:
 
@@ -138,6 +167,22 @@ Columns:
 
 This method requires `logging_mode="full"` and raises `RuntimeError` in `history_only` mode.
 
+### `get_labeled_event_history() -> pandas.DataFrame`
+
+Return the applied event history joined with aligned debug labels on `step` and `event_idx`.
+
+This method keeps event columns unsuffixed and appends the debug-only columns:
+
+- `source`
+- `participant_type`
+- `meta_order_id`
+- `meta_order_side`
+- `meta_order_progress`
+- `burst_state`
+- `shock_state`
+
+This method requires `logging_mode="full"` and raises `RuntimeError` in `history_only` mode.
+
 ### `plot(*, levels: int | None = None, title: str | None = None, figsize: tuple[float, float] | None = None) -> matplotlib.figure.Figure`
 
 Render the built-in overview figure with:
@@ -194,3 +239,11 @@ from orderwave.config import MarketConfig
 - `liquidity_backstop`
 
 `config` passed to `Market` can be either a `MarketConfig` instance or a plain mapping with the same keys.
+
+## `orderwave.validation`
+
+`orderwave.validation` is the supported advanced Python API for validation tooling. The primary entry points are:
+
+- `run_market_validation(...)`
+- `run_sensitivity_grid(...)`
+- `run_validation_pipeline(...)`

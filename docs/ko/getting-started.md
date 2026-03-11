@@ -19,22 +19,20 @@ pip install -e .[dev]
 ```python
 from orderwave import Market
 
-market = Market(seed=42, config={"preset": "trend"})
-market.gen(steps=1_000)
+market = Market(seed=42, preset="trend")
+result = market.run(steps=1_000)
 
-snapshot = market.get()
+snapshot = market.get_snapshot()
 history = market.get_history()
-events = market.get_event_history()
-debug = market.get_debug_history()
+events = market.get_labeled_event_history()
 figure = market.plot()
 ```
 
 compact history와 overview/book plot만 필요한 장기 실행이라면:
 
 ```python
-fast_market = Market(seed=7, config={"preset": "balanced", "logging_mode": "history_only"})
-fast_market.gen(steps=10_000)
-summary = fast_market.get_history()
+fast_market = Market(seed=7, preset="balanced", logging_mode="history_only")
+summary = fast_market.run(steps=10_000).history
 overview = fast_market.plot()
 ```
 
@@ -47,6 +45,10 @@ Market(
     levels=5,
     seed=None,
     config=None,
+    *,
+    preset=None,
+    logging_mode=None,
+    liquidity_backstop=None,
 )
 ```
 
@@ -55,6 +57,9 @@ Market(
 - `levels`: `get()`이 반환하는 visible depth이자 기본 plot depth
 - `seed`: 재현 가능한 난수 시드
 - `config`: `dict` 또는 `orderwave.config.MarketConfig`
+- `preset`: 가장 자주 쓰는 preset 선택용 shortcut
+- `logging_mode`: `config["logging_mode"]` shortcut
+- `liquidity_backstop`: `config["liquidity_backstop"]` shortcut
 - `config["logging_mode"]`: `"full"` 또는 `"history_only"`
 - `config["liquidity_backstop"]`: `"always"`(기본값), `"on_empty"`, `"off"`
 
@@ -93,6 +98,8 @@ diagnostics = market.plot_diagnostics()
 
 - `get_event_history()`는 실제 적용된 event stream만 반환합니다
 - `get_debug_history()`는 같은 `step`, `event_idx` 키로 participant type, meta-order progress, burst state, shock state를 반환합니다
+- `get_labeled_event_history()`는 수동 `merge(...)` 없이 event/debug join 결과를 반환합니다
+- `run()`은 typed snapshot과 사용 가능한 테이블을 묶은 `SimulationResult`를 반환합니다
 - `history_only` 모드는 `get_history()`, `plot()`, `plot_book()`은 유지하지만 `get_event_history()`, `get_debug_history()`, `plot_diagnostics()`는 비활성화합니다
 - 기본값 `liquidity_backstop="always"`는 synthetic book이 양방향으로 보이게 유지하고 각 step 뒤 최소 visible depth를 복구하며 기본 경로를 관측 가능하게 유지합니다
 

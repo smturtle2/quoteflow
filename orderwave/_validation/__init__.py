@@ -12,7 +12,9 @@ from .metrics import (
     summarize_validation_grid,
 )
 from .perf import benchmark_logging_modes, measure_performance
-from .run import run_market_validation, run_reproducibility_checks, run_sensitivity_grid, run_validation_pipeline
+from .pipeline import run_validation_pipeline
+from .reproducibility import run_reproducibility_checks
+from .sensitivity import run_sensitivity_grid
 from .shared import (
     BASELINE_THROUGHPUT_FLOOR,
     BYTES_PER_LOGGED_EVENT_BUDGET,
@@ -26,6 +28,7 @@ from .shared import (
     ValidationPipelineResult,
     ValidationRun,
 )
+from .single_run import run_market_validation
 
 __all__ = [
     "BASELINE_THROUGHPUT_FLOOR",

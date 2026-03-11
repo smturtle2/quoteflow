@@ -42,9 +42,9 @@ def main() -> None:
         tick_size=args.tick_size,
         levels=args.levels,
         seed=args.seed,
-        config={"preset": args.preset},
+        preset=args.preset,
     )
-    market.gen(args.steps)
+    market.run(args.steps)
     figure = market.plot(
         levels=args.levels,
         title=f"orderwave overview ({args.preset}, seed={args.seed})",

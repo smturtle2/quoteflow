@@ -16,7 +16,7 @@ PyPI publishing is driven by [`workflow.yml`](https://github.com/smturtle2/quote
 Before PyPI publish, the workflow runs:
 
 ```bash
-python scripts/validate_orderwave.py --profile release --outdir artifacts/validation-release --baseline-json tests/golden/validation_release_baseline.json --fail-on-baseline-drift
+python -m scripts.validate_orderwave --profile release --outdir artifacts/validation-release --baseline-json tests/golden/validation_release_baseline.json --fail-on-baseline-drift
 ```
 
 This release profile is intentionally much smaller than the full validation sweep so the gate stays fast in CI.
