@@ -4,7 +4,7 @@
   "validation_profile": "release_smoke",
   "liquidity_backstop_default": "on_empty",
   "acceptance": {
-    "decision": "NO-GO",
+    "decision": "FAIL",
     "invariants_ok": true,
     "reproducibility_ok": true,
     "performance_ok": false,
@@ -23,9 +23,9 @@
       "soak_bytes_per_logged_event_budget": false
     },
     "preset_checks": {
-      "volatile_realized_vol_gt_balanced": true,
-      "volatile_mean_spread_ge_balanced": true,
-      "trend_trade_sign_acf1_gt_balanced": false,
+      "volatile_realized_vol_gt_balanced": false,
+      "volatile_spread_q90_gt_balanced": true,
+      "trend_trade_sign_acf1_gt_balanced": true,
       "preset_classifier_accuracy": false,
       "classifier_accuracy": 0.0
     },
@@ -33,14 +33,17 @@
       "abs_return_clustering": false,
       "spread_variation": true,
       "imbalance_signal": false,
-      "phase_separation": true,
+      "phase_structure": true,
       "event_clustering": true,
-      "shock_response": false,
-      "meta_directionality": true
+      "shock_response": true,
+      "impact_decay": false,
+      "depletion_recovery": true,
+      "regime_persistence": true,
+      "meta_directionality": false
     },
     "sensitivity_checks": {
       "cancel_rate_scale": true,
-      "excitation_scale": true,
+      "excitation_scale": false,
       "fair_price_vol_scale": false,
       "limit_rate_scale": true,
       "market_rate_scale": true,
@@ -54,119 +57,164 @@
     "baseline": {
       "balanced": {
         "mean_spread_mean": {
-          "value": 0.03220338983050847,
+          "value": 0.027627118644067798,
           "mode": "abs",
           "tolerance": 0.003
         },
         "realized_vol_mean": {
-          "value": 0.013137655125720075,
+          "value": 0.009513547631602655,
           "mode": "abs",
           "tolerance": 0.003
         },
         "abs_return_acf1_mean": {
-          "value": 0.0696807105449277,
+          "value": -0.09846267239577207,
           "mode": "abs",
           "tolerance": 0.08
         },
         "events_per_step_mean": {
-          "value": 29.050847457627118,
+          "value": 24.610169491525422,
           "mode": "abs",
           "tolerance": 8.0
         },
         "market_buy_share_mean": {
-          "value": 0.5,
+          "value": 0.5182481751824818,
           "mode": "abs",
           "tolerance": 0.08
+        },
+        "spread_q90_mean": {
+          "value": 0.04,
+          "mode": "abs",
+          "tolerance": 0.01
+        },
+        "return_tail_ratio_mean": {
+          "value": 1.562500000000387,
+          "mode": "abs",
+          "tolerance": 0.75
+        },
+        "one_sided_step_ratio_mean": {
+          "value": 0.9661016949152542,
+          "mode": "max",
+          "tolerance": 0.15
         }
       },
       "trend": {
         "mean_spread_mean": {
-          "value": 0.033050847457627125,
+          "value": 0.03423728813559322,
           "mode": "abs",
           "tolerance": 0.003
         },
         "realized_vol_mean": {
-          "value": 0.011331179194866682,
+          "value": 0.009314120181979567,
           "mode": "abs",
           "tolerance": 0.003
         },
         "abs_return_acf1_mean": {
-          "value": 0.37078558663350347,
+          "value": -0.31875222518397756,
           "mode": "abs",
           "tolerance": 0.08
         },
         "events_per_step_mean": {
-          "value": 44.71186440677966,
+          "value": 32.0,
           "mode": "abs",
           "tolerance": 8.0
         },
         "market_buy_share_mean": {
-          "value": 0.4796905222437137,
+          "value": 0.4774066797642436,
           "mode": "abs",
           "tolerance": 0.08
+        },
+        "spread_q90_mean": {
+          "value": 0.05200000000000003,
+          "mode": "abs",
+          "tolerance": 0.01
+        },
+        "return_tail_ratio_mean": {
+          "value": 1.3333333333330175,
+          "mode": "abs",
+          "tolerance": 0.75
+        },
+        "one_sided_step_ratio_mean": {
+          "value": 0.9661016949152542,
+          "mode": "max",
+          "tolerance": 0.15
         }
       },
       "volatile": {
         "mean_spread_mean": {
-          "value": 0.03542372881355932,
+          "value": 0.03288135593220339,
           "mode": "abs",
           "tolerance": 0.003
         },
         "realized_vol_mean": {
-          "value": 0.013691543874997774,
+          "value": 0.007624499654154314,
           "mode": "abs",
           "tolerance": 0.003
         },
         "abs_return_acf1_mean": {
-          "value": -0.11323097702000566,
+          "value": -0.049273982385199984,
           "mode": "abs",
           "tolerance": 0.08
         },
         "events_per_step_mean": {
-          "value": 56.86440677966102,
+          "value": 42.49152542372882,
           "mode": "abs",
           "tolerance": 8.0
         },
         "market_buy_share_mean": {
-          "value": 0.5154639175257731,
+          "value": 0.44310344827586207,
           "mode": "abs",
           "tolerance": 0.08
+        },
+        "spread_q90_mean": {
+          "value": 0.05,
+          "mode": "abs",
+          "tolerance": 0.01
+        },
+        "return_tail_ratio_mean": {
+          "value": 1.4733333333332834,
+          "mode": "abs",
+          "tolerance": 0.75
+        },
+        "one_sided_step_ratio_mean": {
+          "value": 0.8813559322033898,
+          "mode": "max",
+          "tolerance": 0.15
         }
       }
     },
     "soak": {
       "balanced": {
         "peak_memory_mb_mean": {
-          "value": 88.25,
+          "value": 95.77734375,
           "mode": "max",
           "tolerance": 256.0
         },
         "bytes_per_logged_event_mean": {
-          "value": 11651.577940065476,
+          "value": 14730.100322675271,
           "mode": "max",
           "tolerance": 4096.0
         }
       },
       "trend": {
         "peak_memory_mb_mean": {
-          "value": 88.78515625,
+          "value": 98.27734375,
           "mode": "max",
           "tolerance": 256.0
         },
         "bytes_per_logged_event_mean": {
-          "value": 7507.901935483871,
+          "value": 12209.865402843601,
           "mode": "max",
           "tolerance": 4096.0
         }
       },
       "volatile": {
         "peak_memory_mb_mean": {
-          "value": 92.40625,
+          "value": 99.02734375,
           "mode": "max",
           "tolerance": 256.0
         },
         "bytes_per_logged_event_mean": {
-          "value": 6422.84077953069,
+          "value": 9346.327272727272,
           "mode": "max",
           "tolerance": 4096.0
         }

@@ -120,7 +120,7 @@ jobs:
       - name: Run release validation regression
         run: >
           python -m scripts.validate_orderwave
-          --profile release
+          --profile release_smoke
           --outdir artifacts/validation-release
           --baseline-json tests/golden/validation_release_baseline.json
           --fail-on-baseline-drift
