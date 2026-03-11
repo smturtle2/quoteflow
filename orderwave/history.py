@@ -28,6 +28,13 @@ SUMMARY_COLUMNS = [
     "top_n_ask_qty",
     "realized_vol",
     "signed_flow",
+    "visible_levels_bid",
+    "visible_levels_ask",
+    "drought_age",
+    "recovery_pressure",
+    "impact_residue",
+    "regime_dwell",
+    "inventory_pressure",
 ]
 
 EVENT_COLUMNS = [
@@ -64,6 +71,13 @@ DEBUG_COLUMNS = [
     "meta_order_progress",
     "burst_state",
     "shock_state",
+    "drought_age",
+    "recovery_pressure",
+    "impact_residue",
+    "regime_dwell",
+    "inventory_pressure",
+    "visible_levels_bid",
+    "visible_levels_ask",
 ]
 
 _PHASES = ("open", "mid", "close")
@@ -123,6 +137,15 @@ class _SummaryStore:
         self._top_n_ask_qty = array("d")
         self._realized_vol = array("d")
         self._signed_flow = array("d")
+        self._visible_levels_bid = array("I")
+        self._visible_levels_ask = array("I")
+        self._drought_age = array("d")
+        self._recovery_pressure = array("d")
+        self._impact_residue = array("d")
+        self._regime_dwell = array("I")
+        self._inventory_pressure = array("d")
+        self._visible_levels_bid = array("I")
+        self._visible_levels_ask = array("I")
         self._phase_codec = _CategoryCodec(_PHASES)
         self._regime_codec = _CategoryCodec(_REGIMES)
         self._cache: pd.DataFrame | None = None
@@ -156,6 +179,13 @@ class _SummaryStore:
         self._top_n_ask_qty.append(float(top_n_ask_qty))
         self._realized_vol.append(float(realized_vol))
         self._signed_flow.append(float(signed_flow))
+        self._visible_levels_bid.append(int(snapshot["visible_levels_bid"]))
+        self._visible_levels_ask.append(int(snapshot["visible_levels_ask"]))
+        self._drought_age.append(float(snapshot["drought_age"]))
+        self._recovery_pressure.append(float(snapshot["recovery_pressure"]))
+        self._impact_residue.append(float(snapshot["impact_residue"]))
+        self._regime_dwell.append(int(snapshot["regime_dwell"]))
+        self._inventory_pressure.append(float(snapshot["inventory_pressure"]))
         self._dirty = True
 
     def dataframe(self) -> pd.DataFrame:
@@ -181,6 +211,13 @@ class _SummaryStore:
                     "top_n_ask_qty": np.frombuffer(self._top_n_ask_qty, dtype=np.float64),
                     "realized_vol": np.frombuffer(self._realized_vol, dtype=np.float64),
                     "signed_flow": np.frombuffer(self._signed_flow, dtype=np.float64),
+                    "visible_levels_bid": np.frombuffer(self._visible_levels_bid, dtype=np.uint32).astype(np.int64, copy=False),
+                    "visible_levels_ask": np.frombuffer(self._visible_levels_ask, dtype=np.uint32).astype(np.int64, copy=False),
+                    "drought_age": np.frombuffer(self._drought_age, dtype=np.float64),
+                    "recovery_pressure": np.frombuffer(self._recovery_pressure, dtype=np.float64),
+                    "impact_residue": np.frombuffer(self._impact_residue, dtype=np.float64),
+                    "regime_dwell": np.frombuffer(self._regime_dwell, dtype=np.uint32).astype(np.int64, copy=False),
+                    "inventory_pressure": np.frombuffer(self._inventory_pressure, dtype=np.float64),
                 },
                 columns=SUMMARY_COLUMNS,
             )
@@ -317,6 +354,13 @@ class _DebugStore:
         self._meta_order_progress = array("d")
         self._burst_state = array("H")
         self._shock_state = array("H")
+        self._drought_age = array("d")
+        self._recovery_pressure = array("d")
+        self._impact_residue = array("d")
+        self._regime_dwell = array("I")
+        self._inventory_pressure = array("d")
+        self._visible_levels_bid = array("I")
+        self._visible_levels_ask = array("I")
         self._phase_codec = _CategoryCodec(_PHASES)
         self._source_codec = _CategoryCodec()
         self._participant_codec = _CategoryCodec()
@@ -340,6 +384,13 @@ class _DebugStore:
         meta_order_progress: float | None,
         burst_state: str | None,
         shock_state: str | None,
+        drought_age: float,
+        recovery_pressure: float,
+        impact_residue: float,
+        regime_dwell: int,
+        inventory_pressure: float,
+        visible_levels_bid: int,
+        visible_levels_ask: int,
     ) -> None:
         self._step.append(int(step))
         self._event_idx.append(int(event_idx))
@@ -353,6 +404,13 @@ class _DebugStore:
         self._meta_order_progress.append(float("nan") if meta_order_progress is None else float(meta_order_progress))
         self._burst_state.append(self._burst_codec.encode(burst_state))
         self._shock_state.append(self._shock_codec.encode(shock_state))
+        self._drought_age.append(float(drought_age))
+        self._recovery_pressure.append(float(recovery_pressure))
+        self._impact_residue.append(float(impact_residue))
+        self._regime_dwell.append(int(regime_dwell))
+        self._inventory_pressure.append(float(inventory_pressure))
+        self._visible_levels_bid.append(int(visible_levels_bid))
+        self._visible_levels_ask.append(int(visible_levels_ask))
         self._dirty = True
 
     def dataframe(self) -> pd.DataFrame:
@@ -371,6 +429,13 @@ class _DebugStore:
                     "meta_order_progress": np.frombuffer(self._meta_order_progress, dtype=np.float64),
                     "burst_state": self._burst_codec.decode_many(self._burst_state),
                     "shock_state": self._shock_codec.decode_many(self._shock_state),
+                    "drought_age": np.frombuffer(self._drought_age, dtype=np.float64),
+                    "recovery_pressure": np.frombuffer(self._recovery_pressure, dtype=np.float64),
+                    "impact_residue": np.frombuffer(self._impact_residue, dtype=np.float64),
+                    "regime_dwell": np.frombuffer(self._regime_dwell, dtype=np.uint32).astype(np.int64, copy=False),
+                    "inventory_pressure": np.frombuffer(self._inventory_pressure, dtype=np.float64),
+                    "visible_levels_bid": np.frombuffer(self._visible_levels_bid, dtype=np.uint32).astype(np.int64, copy=False),
+                    "visible_levels_ask": np.frombuffer(self._visible_levels_ask, dtype=np.uint32).astype(np.int64, copy=False),
                 },
                 columns=DEBUG_COLUMNS,
             )
@@ -468,6 +533,13 @@ class HistoryBuffer:
         meta_order_progress: float | None,
         burst_state: str | None,
         shock_state: str | None,
+        drought_age: float,
+        recovery_pressure: float,
+        impact_residue: float,
+        regime_dwell: int,
+        inventory_pressure: float,
+        visible_levels_bid: int,
+        visible_levels_ask: int,
     ) -> None:
         if self._debug is None:
             return
@@ -484,6 +556,13 @@ class HistoryBuffer:
             meta_order_progress,
             burst_state,
             shock_state,
+            drought_age,
+            recovery_pressure,
+            impact_residue,
+            regime_dwell,
+            inventory_pressure,
+            visible_levels_bid,
+            visible_levels_ask,
         )
 
     def record_visual(

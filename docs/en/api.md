@@ -33,6 +33,7 @@ Market(
 ```
 
 `Market` is the main public entry point. It seeds an initial aggregate order book at `step == 0`, records compact history immediately, and keeps a private visual history for built-in plotting.
+`orderwave` should be read as an aggregate order-book market-state simulator: it focuses on path, book, and regime dynamics rather than order-level fill precision.
 `preset`, `logging_mode`, and `liquidity_backstop` are convenience keywords that override the same fields inside `config`.
 
 ### `step() -> dict`
@@ -87,7 +88,7 @@ Snapshot fields:
 - `depth_imbalance`
 - `regime`
 
-`trade_strength` is an execution-only signed imbalance. It is computed from an EWMA of realized aggressor buy and sell volume, so quote-only book changes do not alter it.
+`trade_strength` is a realized-trade signed imbalance. It is computed from an EWMA of aggressor buy and sell volume, so quote-only book changes do not alter it.
 
 If `config={"logging_mode": "history_only"}` is used, snapshot and compact history remain available, but event/debug APIs are intentionally disabled.
 
@@ -162,6 +163,13 @@ Columns:
 - `meta_order_progress`
 - `burst_state`
 - `shock_state`
+- `drought_age`
+- `recovery_pressure`
+- `impact_residue`
+- `regime_dwell`
+- `inventory_pressure`
+- `visible_levels_bid`
+- `visible_levels_ask`
 
 `get_debug_history()` shares the same `step` and `event_idx` keys as `get_event_history()`. It is intended for advanced inspection and diagnostics rather than the default user workflow.
 
@@ -180,6 +188,13 @@ This method keeps event columns unsuffixed and appends the debug-only columns:
 - `meta_order_progress`
 - `burst_state`
 - `shock_state`
+- `drought_age`
+- `recovery_pressure`
+- `impact_residue`
+- `regime_dwell`
+- `inventory_pressure`
+- `visible_levels_bid`
+- `visible_levels_ask`
 
 This method requires `logging_mode="full"` and raises `RuntimeError` in `history_only` mode.
 
@@ -235,6 +250,9 @@ from orderwave.config import MarketConfig
 - `excitation_scale`
 - `meta_order_scale`
 - `shock_scale`
+- `resiliency_scale`
+- `depletion_scale`
+- `participant_feedback_scale`
 - `logging_mode`
 - `liquidity_backstop`
 

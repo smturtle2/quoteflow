@@ -60,7 +60,7 @@ def test_market_initializes_snapshot_and_history() -> None:
     assert len(snapshot["bids"]) <= market.levels
     assert len(snapshot["asks"]) <= market.levels
     assert list(history["step"]) == [0]
-    assert market.config.liquidity_backstop == "always"
+    assert market.config.liquidity_backstop == "on_empty"
 
 
 def test_get_snapshot_exposes_typed_view_and_round_trips_to_dict() -> None:
@@ -159,6 +159,13 @@ def test_history_contains_summary_columns_only() -> None:
         "top_n_ask_qty",
         "realized_vol",
         "signed_flow",
+        "visible_levels_bid",
+        "visible_levels_ask",
+        "drought_age",
+        "recovery_pressure",
+        "impact_residue",
+        "regime_dwell",
+        "inventory_pressure",
     }
     assert set(history.columns) == expected
     assert "bids" not in history.columns
@@ -198,7 +205,7 @@ def test_run_returns_bundle_with_labeled_event_history() -> None:
     assert result.event_history is not None
     assert result.debug_history is not None
     assert result.labeled_event_history is not None
-    assert list(result.labeled_event_history.columns[-7:]) == [
+    assert list(result.labeled_event_history.columns[-14:]) == [
         "source",
         "participant_type",
         "meta_order_id",
@@ -206,6 +213,13 @@ def test_run_returns_bundle_with_labeled_event_history() -> None:
         "meta_order_progress",
         "burst_state",
         "shock_state",
+        "drought_age",
+        "recovery_pressure",
+        "impact_residue",
+        "regime_dwell",
+        "inventory_pressure",
+        "visible_levels_bid",
+        "visible_levels_ask",
     ]
 
 
@@ -231,25 +245,25 @@ def test_book_invariants_hold_over_random_run() -> None:
             "balanced",
             101,
             18,
-            "e1dc3bb0893d8153a714b911d24a2b277c6bc017bf809218220fb696a6aa8b1d",
-            "b906ab484dd79001f3ce6eaf8c0226876ed40bc6da3ab25d4492c72b27dbbb6e",
-            "46e1346f421983081996a00c0af88cad51171cfda0147645da7dcd7d9402437d",
+            "4fe6b122f870c4074de0f3d796c5a6afda246b2a12e53fd6f509d4ad9c4041ba",
+            "beb589fd795de1b34aa8d34ba08ad6ea080efd90a898dda14fc7c3fd021e641c",
+            "504672123f562c8f5bb23caf6bb1b7fbd698c56dc2e6d8a2494f2e139e2be143",
         ),
         (
             "trend",
             202,
             18,
-            "d86af69003642de675e965e4f619bed4ea9a5e5b23c95dc5d01f698f4f283c27",
-            "9050e29b6460757d3f57a1a7bd117f8e512bda4fbcd39055a62abb7f45c5c694",
-            "7dcfbfc3028835d5f57400cd510f57304b1ab58843b9e9ca2591ee3a2cc83d97",
+            "e6537cb1d8be3d07fbc370d40f3de9e1445f95fe18d7235ba4cd411510e73fff",
+            "4971126915b71c2e1fca9fc2bd3c0c217bda01d8dcceafa732dcd928327108e0",
+            "a088aad900f1569f06f0ecf6fbeb7cf8388dce662dc72b34589affad4295c978",
         ),
         (
             "volatile",
             303,
             18,
-            "ec5b6c18121744a37a09af0ea98d8affb9794f6acf67990ac1097d28dd94adfc",
-            "8bfac05cc3d42d9055dd9473b9b4b6fb287984dee5596064c79579a4e15fc55a",
-            "be2ab075c56a8bd1d326e987492ece866ac759b6d1a11ea559bde235e8990630",
+            "2c1834808159a5a12fc168f408932f2b4e4e5f6ec08294bddfcdc93415ddf2ac",
+            "36c3fd75d944920c19e0220d8b2463908415e06ec97da53a43773aba64cd768e",
+            "507c93b697398724ea9e94a110234d928a83afbe121e63f17f59443aaaa3b67f",
         ),
     ],
 )

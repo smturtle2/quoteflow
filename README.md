@@ -4,9 +4,13 @@
 [![Python versions](https://img.shields.io/pypi/pyversions/orderwave.svg)](https://pypi.org/project/orderwave/)
 [![Release workflow](https://github.com/smturtle2/quoteflow/actions/workflows/workflow.yml/badge.svg)](https://github.com/smturtle2/quoteflow/actions/workflows/workflow.yml)
 
-Order-flow-driven synthetic market simulation for Python, with built-in visualization.
+Order-flow-driven aggregate order-book market-state simulation for Python, with built-in visualization.
 
-`orderwave` does not random-walk price directly. It simulates a sparse aggregate limit order book, participant-conditioned limit flow, marketable flow, cancellations, latent meta-orders, exogenous shocks, and session-aware state changes, then lets price emerge from those book mechanics. The same `Market` object can render the path, the current book snapshot, and realism-oriented diagnostics without extra plotting glue.
+`orderwave` does not random-walk price directly. It simulates a sparse aggregate order book, participant-conditioned limit flow, marketable flow, cancellations, latent meta-orders, exogenous shocks, and session-aware state changes, then lets price emerge from those book mechanics. The same `Market` object can render the path, the current book snapshot, and built-in market-state diagnostics without extra plotting glue.
+
+`orderwave` is an aggregate order-book market-state simulator.
+It is designed to generate believable intraday market paths, book states, and regime changes for research, visualization, and sandbox experimentation.
+It does not try to present itself as an order-level matching or fill-precision simulator.
 
 [English Docs](https://github.com/smturtle2/quoteflow/tree/main/docs/en) | [한국어 README](https://github.com/smturtle2/quoteflow/blob/main/README.ko.md) | [한국어 문서](https://github.com/smturtle2/quoteflow/tree/main/docs/ko)
 
@@ -85,7 +89,7 @@ The runner writes:
 The repository also includes a validation runner for preset sweeps, knob sensitivity, reproducibility checks, and soak tests.
 
 ```bash
-python -m scripts.validate_orderwave --profile full --jobs 4 --outdir artifacts/validation
+python -m scripts.validate_orderwave --profile quality_regression --jobs 4 --outdir artifacts/validation
 ```
 
 The runner writes:
@@ -98,10 +102,10 @@ The runner writes:
 - `acceptance_decision.md`
 - `diagnostics_<preset>_<seed>.png` when diagnostics rendering is enabled
 
-Release builds run a separate `Release Validation` job that executes the shorter `--profile release` regression and compares it against `tests/golden/validation_release_baseline.json` before PyPI publish.
-That release profile is intentionally kept small so the CI validation gate stays fast.
+Release builds run a separate `Release Validation` job that executes the shorter `--profile release_smoke` regression and compares it against `tests/golden/validation_release_baseline.json` before PyPI publish.
+That smoke profile is intentionally kept small so the CI validation gate stays fast.
 
-The next engine improvement target is intentionally narrow: finer intra-step event feedback only.
+The current engine roadmap is broader market-state fidelity: stronger preset separation, richer time structure, cleaner sensitivity control, and better validation artifacts.
 
 ## API Surface
 
@@ -124,15 +128,14 @@ Advanced configuration is available through `orderwave.config.MarketConfig`.
 Common settings can also be passed directly as `Market(..., preset="trend", logging_mode="history_only", liquidity_backstop="off")`.
 
 `logging_mode="history_only"` keeps summary history plus overview/book plotting data, but disables `get_event_history()`, `get_debug_history()`, and `plot_diagnostics()`.
-Default `liquidity_backstop="always"` keeps the synthetic market two-sided and observable by default.
-It also restores minimum visible depth after each step so the baseline path stays readable.
-`"on_empty"` and `"off"` are available when you want to allow thinner or missing post-step liquidity.
+Default `liquidity_backstop="on_empty"` restores a missing side without forcing minimum visible depth after every step.
+Use `"always"` when you want a more aggressively stabilized book, or `"off"` when you want to allow thinner post-step liquidity.
 
 ## Built-in Visualization
 
 All plotting methods return `matplotlib.figure.Figure` and leave save/show control to the caller.
 
-- `plot()` renders the main overview: price, spread, execution-only trade strength, and signed visible-depth heatmap
+- `plot()` renders the main overview: price, spread, realized-trade imbalance, and signed visible-depth heatmap
 - `plot_book()` renders the current order book on a real price axis
 - `plot_diagnostics()` renders session phase profile, imbalance lead, market-flow excitation, spread-volatility coupling, depletion resiliency, and regime or shock occupancy
 
@@ -152,7 +155,7 @@ The overview heatmap keeps signed depth. Ask liquidity is red, bid liquidity is 
 
 `Market.get()` returns a compact dictionary with session clock fields, prices, spread, visible depth, aggressive volume, trade strength, depth imbalance, and regime.
 
-`trade_strength` is an execution-only signed imbalance. It is computed from an EWMA of realized aggressor buy and sell volume, so quote-only book changes do not move it.
+`trade_strength` is a realized-trade signed imbalance. It is computed from an EWMA of aggressor buy and sell volume, so quote-only book changes do not move it.
 
 `Market.run()` returns a `SimulationResult` bundle with the typed snapshot plus whichever tables are available for the current logging mode.
 
@@ -165,7 +168,7 @@ Important distinction:
 Core guarantees:
 
 - Price is never random-walked directly
-- Quote improvement, best-quote depletion, and market execution are the only price-moving mechanisms
+- Quote improvement, best-quote depletion, and market trades are the only price-moving mechanisms
 - Visible history starts at `step == 0` with the seeded initial book
 - Applied limit, market, and cancel events are available through `get_event_history()`
 - Participant type, meta-order progress, burst state, and shock state are available through `get_debug_history()`

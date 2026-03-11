@@ -36,7 +36,7 @@ from orderwave._model.samplers import sample_participant_events
 from orderwave._model.types import EngineContext, MetaOrderState
 from orderwave.config import RegimeName
 from orderwave.metrics import MarketFeatures
-from orderwave.utils import EPSILON, tick_to_price
+from orderwave.utils import EPSILON, clamp, tick_to_price
 
 if TYPE_CHECKING:
     from orderwave.market import Market
@@ -86,12 +86,14 @@ class _MarketEngine:
 
         self._advance_session_clock()
         market._book.increment_staleness()
+        previous_regime = market._regime
         market._regime = sample_next_regime(
             market._regime,
             rng=market._rng,
             config=market.config,
             params=market._params,
         )
+        market._regime_dwell = (market._regime_dwell + 1) if market._regime == previous_regime else 1
         market._excitation = decay_excitation(
             market._excitation,
             config=market.config,
@@ -155,6 +157,7 @@ class _MarketEngine:
             params=market._params,
             next_meta_order_id=market._next_meta_order_id,
         )
+        self._refresh_market_state(previous_features, previous_mid_price=previous_mid_price)
         return _StepState(
             previous_features=previous_features,
             previous_mid_price=previous_mid_price,
@@ -175,9 +178,7 @@ class _MarketEngine:
             config=market.config,
             params=market._params,
         )
-        if sampled_events:
-            order = market._rng.permutation(len(sampled_events))
-            sampled_events = [sampled_events[index] for index in order]
+        sampled_events.sort(key=self._event_stage_sort_key)
         return sampled_events
 
     def _apply_step_events(self, sampled_events: list[StepEvent]) -> _StepOutcome:
@@ -215,6 +216,7 @@ class _MarketEngine:
         self._update_trade_strength_ema(step_outcome.step_buy_volume, step_outcome.step_sell_volume)
 
         current_features = market._compute_features()
+        self._refresh_market_state(current_features, previous_mid_price=step_state.previous_mid_price)
         market._mid_returns.append(current_features.mid_price - step_state.previous_mid_price)
 
         market._step += 1
@@ -390,6 +392,14 @@ class _MarketEngine:
             best_depth_deficit_ask=market._best_depth_deficit_ask,
             imbalance_displacement=market._imbalance_displacement,
             directional_anchor=market._directional_anchor,
+            drought_age=market._drought_age,
+            recovery_pressure=market._recovery_pressure,
+            one_sided_pressure=market._one_sided_pressure,
+            impact_residue=market._impact_residue,
+            regime_dwell=market._regime_dwell,
+            inventory_pressure=market._inventory_pressure,
+            passive_withdrawal=market._passive_withdrawal_bias,
+            noise_fatigue=market._noise_fatigue,
         )
 
     def _update_after_event_state(
@@ -431,6 +441,7 @@ class _MarketEngine:
             depth_imbalance=event_state["depth_imbalance"],
             best_bid_qty=int(event_state["best_bid_qty"]),
             best_ask_qty=int(event_state["best_ask_qty"]),
+            config=market.config,
             params=market._params,
         )
 
@@ -494,4 +505,127 @@ class _MarketEngine:
             meta_order_progress(meta_order),
             market._burst_state,
             market._shock_state.name if market._shock_state is not None else "none",
+            market._drought_age,
+            market._recovery_pressure,
+            market._impact_residue,
+            market._regime_dwell,
+            market._inventory_pressure,
+            len(market._book.top_levels("bid", market.levels)),
+            len(market._book.top_levels("ask", market.levels)),
+        )
+
+    def _event_stage_sort_key(self, event: StepEvent) -> tuple[int, int, int, int]:
+        source_rank = {"shock": 0, "meta_order": 1, "organic": 2}.get(event["source"], 3)
+        participant_type = event["participant_type"]
+        if is_limit_event(event):
+            participant_rank = {
+                "passive_lp": 0,
+                "inventory_mm": 1,
+                "informed_meta": 2,
+                "noise_taker": 3,
+            }[participant_type]
+            return (0, participant_rank, source_rank, int(event["level"]))
+        if is_market_event(event):
+            participant_rank = {
+                "informed_meta": 0,
+                "noise_taker": 1,
+                "inventory_mm": 2,
+                "passive_lp": 3,
+            }[participant_type]
+            return (1, participant_rank, source_rank, 0)
+        assert is_cancel_event(event)
+        participant_rank = {
+            "inventory_mm": 0,
+            "passive_lp": 1,
+            "informed_meta": 2,
+            "noise_taker": 3,
+        }[participant_type]
+        level = event["level"]
+        return (2, participant_rank, source_rank, 0 if level is None else int(level))
+
+    def _refresh_market_state(self, features: MarketFeatures, *, previous_mid_price: float) -> None:
+        market = self._market
+        visible_levels_bid = len(market._book.top_levels("bid", market._minimum_visible_levels))
+        visible_levels_ask = len(market._book.top_levels("ask", market._minimum_visible_levels))
+        visible_gap = max(market._minimum_visible_levels - visible_levels_bid, market._minimum_visible_levels - visible_levels_ask, 0)
+        thinness = max(features.thin_bid_best, features.thin_ask_best)
+        meta_pressure = 0.0
+        for side, meta_order in market._meta_orders.items():
+            if meta_order is None:
+                continue
+            sign = 1.0 if side == "buy" else -1.0
+            meta_pressure += sign * (1.0 - meta_order_progress(meta_order)) * meta_order.urgency
+
+        market._one_sided_pressure = float(
+            clamp(
+                (0.72 * market._one_sided_pressure)
+                + (market.config.depletion_scale * (visible_gap / max(market._minimum_visible_levels, 1))),
+                0.0,
+                4.0,
+            )
+        )
+        drought_trigger = (
+            visible_gap > 0
+            or market._spread_excess > 0.35
+            or max(market._best_depth_deficit_bid, market._best_depth_deficit_ask) > 0.25
+            or thinness > 0.35
+        )
+        if drought_trigger:
+            market._drought_age = float(clamp(market._drought_age + market.config.depletion_scale, 0.0, 20.0))
+        else:
+            market._drought_age = float(max(0.0, market._drought_age - (0.6 * market.config.resiliency_scale)))
+
+        recovery_target = (
+            market._spread_excess
+            + market._best_depth_deficit_bid
+            + market._best_depth_deficit_ask
+            + (0.5 * market._one_sided_pressure)
+        )
+        market._recovery_pressure = float(clamp(recovery_target * market.config.depletion_scale, 0.0, 6.0))
+
+        return_move = abs(features.mid_price - previous_mid_price) / max(features.spread_price, market.tick_size)
+        shock_pressure = 0.0 if market._shock_state is None else float(market._shock_state.intensity)
+        impact_target = (
+            (0.45 * abs(features.trade_strength))
+            + (0.35 * return_move)
+            + (0.2 * abs(meta_pressure))
+            + (0.18 * shock_pressure)
+        )
+        market._impact_residue = float(clamp((0.78 * market._impact_residue) + impact_target, 0.0, 6.0))
+
+        inventory_target = (
+            features.signed_flow
+            + (0.45 * features.depth_imbalance)
+            + (0.3 * market._directional_anchor)
+            + (0.25 * meta_pressure)
+        )
+        market._inventory_pressure = float(
+            clamp(
+                (0.84 * market._inventory_pressure)
+                + (market.config.participant_feedback_scale * inventory_target),
+                -3.0,
+                3.0,
+            )
+        )
+
+        withdrawal_target = (0.45 * market._recovery_pressure) + (0.35 * thinness) + (0.2 * shock_pressure)
+        market._passive_withdrawal_bias = float(
+            clamp(
+                (0.76 * market._passive_withdrawal_bias)
+                + (market.config.participant_feedback_scale * withdrawal_target),
+                0.0,
+                4.0,
+            )
+        )
+
+        flow_activity = (features.buy_aggr_volume + features.sell_aggr_volume) / max(market.config.flow_window, 1)
+        market._noise_fatigue = float(
+            clamp(
+                (0.74 * market._noise_fatigue)
+                + (0.35 * flow_activity)
+                + (0.16 * market._impact_residue)
+                - (0.08 * market.config.resiliency_scale),
+                0.0,
+                4.0,
+            )
         )

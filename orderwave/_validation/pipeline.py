@@ -28,6 +28,7 @@ from .tasks import execute_run_grid, execute_sensitivity_grid, select_diagnostic
 def run_validation_pipeline(
     *,
     outdir: Path,
+    profile_name: str = "quality_regression",
     presets: Sequence[str] = DEFAULT_PRESETS,
     baseline_seeds: int = 20,
     baseline_steps: int = 20_000,
@@ -126,6 +127,7 @@ def run_validation_pipeline(
         reproducibility=reproducibility,
         sensitivity_summary=sensitivity_summary,
         invariant_failures=invariant_failures,
+        profile_name=profile_name,
     )
 
     diagnostics_paths: dict[str, Path] = {}
@@ -191,6 +193,7 @@ def run_validation_pipeline(
     )
 
     return ValidationPipelineResult(
+        profile_name=profile_name,
         run_metrics=run_metrics,
         preset_summary=preset_summary,
         sensitivity_summary=sensitivity_summary,

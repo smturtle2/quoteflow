@@ -23,6 +23,9 @@ def test_advance_latent_state_does_not_mutate_public_outputs() -> None:
 
     assert step_state.regime in {"calm", "directional", "stressed"}
     assert step_state.context.session_phase in {"open", "mid", "close"}
+    assert step_state.context.recovery_pressure >= 0.0
+    assert step_state.context.drought_age >= 0.0
+    assert step_state.context.regime_dwell >= 0
     assert market.get() == initial_snapshot
     pd.testing.assert_frame_equal(market.get_history(), initial_history)
 

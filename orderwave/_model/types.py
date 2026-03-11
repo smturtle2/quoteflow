@@ -44,6 +44,14 @@ class EngineContext:
     best_depth_deficit_ask: float
     imbalance_displacement: float
     directional_anchor: float
+    drought_age: float
+    recovery_pressure: float
+    one_sided_pressure: float
+    impact_residue: float
+    regime_dwell: int
+    inventory_pressure: float
+    passive_withdrawal: float
+    noise_fatigue: float
 
 
 PARTICIPANT_TYPES: tuple[ParticipantType, ...] = (

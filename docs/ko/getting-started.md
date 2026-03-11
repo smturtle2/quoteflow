@@ -101,7 +101,7 @@ diagnostics = market.plot_diagnostics()
 - `get_labeled_event_history()`는 수동 `merge(...)` 없이 event/debug join 결과를 반환합니다
 - `run()`은 typed snapshot과 사용 가능한 테이블을 묶은 `SimulationResult`를 반환합니다
 - `history_only` 모드는 `get_history()`, `plot()`, `plot_book()`은 유지하지만 `get_event_history()`, `get_debug_history()`, `plot_diagnostics()`는 비활성화합니다
-- 기본값 `liquidity_backstop="always"`는 synthetic book이 양방향으로 보이게 유지하고 각 step 뒤 최소 visible depth를 복구하며 기본 경로를 관측 가능하게 유지합니다
+- 기본값 `liquidity_backstop="on_empty"`는 한쪽 호가가 사라진 경우만 복구하고 매 step마다 최소 visible depth를 강제로 채우지는 않습니다
 
 ## 재현성
 

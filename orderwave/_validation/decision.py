@@ -26,8 +26,9 @@ def evaluate_validation_results(
     reproducibility: pd.DataFrame,
     sensitivity_summary: pd.DataFrame,
     invariant_failures: pd.DataFrame,
+    profile_name: str = "quality_regression",
 ) -> dict[str, Any]:
-    """Produce the final GO / CONDITIONAL / NO-GO verdict."""
+    """Produce the final validation verdict for a named validation profile."""
 
     baseline_metrics = run_metrics.loc[run_metrics["stage"] == "baseline"].copy()
     soak_metrics = run_metrics.loc[run_metrics["stage"] == "soak"].copy()
@@ -54,16 +55,25 @@ def evaluate_validation_results(
 
     classifier_accuracy = leave_one_out_centroid_accuracy(
         baseline_metrics,
-        features=("realized_vol", "mean_spread", "trade_sign_acf1", "events_per_step"),
+        features=(
+            "realized_vol",
+            "mean_spread",
+            "trade_sign_acf1",
+            "events_per_step",
+            "spread_q90",
+            "one_sided_step_ratio",
+            "regime_dwell_mean",
+        ),
     )
+    spread_q90_column = _first_available_column(baseline_summary, ("spread_q90_mean", "mean_spread_mean"))
     preset_checks = {
         "volatile_realized_vol_gt_balanced": preset_compare(baseline_summary, "volatile", "balanced", "realized_vol_mean"),
-        "volatile_mean_spread_ge_balanced": preset_compare(
+        "volatile_spread_q90_gt_balanced": preset_compare(
             baseline_summary,
             "volatile",
             "balanced",
-            "mean_spread_mean",
-            comparison="ge",
+            spread_q90_column,
+            comparison="gt",
         ),
         "trend_trade_sign_acf1_gt_balanced": preset_compare(
             baseline_summary,
@@ -78,22 +88,26 @@ def evaluate_validation_results(
     stylized_checks = evaluate_stylized_facts(baseline_summary)
     mandatory_stylized = (
         stylized_checks["abs_return_clustering"],
-        stylized_checks["spread_variation"],
+        stylized_checks["phase_structure"],
         stylized_checks["shock_response"],
+        stylized_checks["impact_decay"],
     )
-    stylized_ok = bool(sum(bool(value) for value in stylized_checks.values()) >= 5 and all(mandatory_stylized))
+    stylized_ok = bool(sum(bool(value) for value in stylized_checks.values()) >= 7 and all(mandatory_stylized))
 
     sensitivity_checks = evaluate_sensitivity_summary(sensitivity_summary)
     core_passes = sum(int(sensitivity_checks.get(knob, False)) for knob in CORE_SENSITIVITY_KNOBS)
     total_passes = sum(int(value) for value in sensitivity_checks.values())
-    sensitivity_ok = bool(core_passes >= 4 and total_passes >= 6)
+    sensitivity_ok = bool(core_passes == len(CORE_SENSITIVITY_KNOBS) and total_passes >= 6)
 
     seed_stability = evaluate_seed_stability(baseline_metrics, baseline_summary)
     seed_stability_ok = bool(seed_stability["passes"])
 
     hard_gates_ok = invariants_ok and reproducible_ok and performance_ok
     soft_gates_ok = preset_separation_ok and stylized_ok and sensitivity_ok and seed_stability_ok
-    if not hard_gates_ok:
+    if profile_name == "release_smoke":
+        decision = "PASS" if hard_gates_ok else "FAIL"
+        suitability = "구조 안정성 통과" if hard_gates_ok else "구조 안정성 실패"
+    elif not hard_gates_ok:
         decision = "NO-GO"
         suitability = "부적합"
     elif soft_gates_ok:
@@ -118,7 +132,7 @@ def evaluate_validation_results(
     else:
         weaknesses.append("preset 분리가 약하거나 classifier 분리도가 부족함")
     if stylized_ok:
-        strengths.append("변동성 군집, spread variation, shock 반응 등 시간 구조가 관찰됨")
+        strengths.append("변동성 군집, phase 구조, shock 반응, impact decay가 함께 관찰됨")
     else:
         weaknesses.append("stylized fact 또는 시간 구조가 충분히 드러나지 않음")
     if sensitivity_ok:
@@ -134,18 +148,31 @@ def evaluate_validation_results(
     else:
         weaknesses.append("성능 floor 또는 장기 soak 메모리 예산을 넘김")
 
-    immediate_scope = (
-        "preset 비교, multi-seed 실험, agent sandbox, stylized-state 연구"
-        if decision != "NO-GO"
-        else "추가 수정 전에는 연구용 채택 범위를 권장하지 않음"
-    )
+    if profile_name == "release_smoke":
+        immediate_scope = "release regression smoke check"
+    else:
+        immediate_scope = (
+            "preset 비교, multi-seed 실험, 시장상태 경로 연구, 전략 프로토타이핑"
+            if decision != "NO-GO"
+            else "추가 수정 전에는 연구용 채택 범위를 권장하지 않음"
+        )
     required_fix = (
         "없음"
-        if decision == "GO"
+        if decision in {"GO", "PASS"}
         else ", ".join(weaknesses[:2]) if weaknesses else "추가 검증 필요"
     )
 
+    if profile_name == "release_smoke":
+        conclusion_market_state = (
+            "이 검증은 시장상태 시뮬레이터의 구조 안정성 smoke regression만 평가한다."
+        )
+    else:
+        conclusion_market_state = (
+            f"이 엔진은 aggregate order-book 기반 시장상태 시뮬레이터로 볼 때 {suitability}."
+        )
+
     return {
+        "profile_name": profile_name,
         "decision": decision,
         "suitability": suitability,
         "invariants_ok": invariants_ok,
@@ -164,9 +191,7 @@ def evaluate_validation_results(
         "weaknesses": weaknesses,
         "immediate_scope": immediate_scope,
         "required_fix": required_fix,
-        "conclusion_market_state": (
-            f"이 엔진은 execution simulator로 보지 않고 synthetic market-state generator로 볼 때 {suitability}."
-        ),
+        "conclusion_market_state": conclusion_market_state,
         "conclusion_scope": f"현재 가장 신뢰할 수 있는 사용처는 {immediate_scope}.",
         "conclusion_required_fix": f"채택 전 반드시 보완할 항목은 {required_fix}.",
     }
@@ -178,30 +203,55 @@ def evaluate_stylized_facts(baseline_summary: pd.DataFrame) -> dict[str, bool]:
             "abs_return_clustering": False,
             "spread_variation": False,
             "imbalance_signal": False,
-            "phase_separation": False,
+            "phase_structure": False,
             "event_clustering": False,
             "shock_response": False,
+            "impact_decay": False,
+            "depletion_recovery": False,
+            "regime_persistence": False,
             "meta_directionality": False,
         }
 
+    abs_return_acf1 = _summary_series(baseline_summary, "abs_return_acf1_mean")
+    spread_unique = _summary_series(baseline_summary, "spread_unique_count_mean")
+    imbalance_signal = _summary_series(baseline_summary, "imbalance_next_mid_return_corr_mean")
+    phase_spread_range = _summary_series(baseline_summary, "phase_spread_range_mean")
+    phase_fill_range = _summary_series(baseline_summary, "phase_fill_range_mean")
+    buy_event_acf1 = _summary_series(baseline_summary, "buy_event_count_acf1_mean")
+    cancel_event_acf1 = _summary_series(baseline_summary, "cancel_event_count_acf1_mean")
+    shock_ratio = _summary_series(baseline_summary, "shock_to_calm_ratio_mean")
+    shock_decay = _summary_series(baseline_summary, "shock_decay_ratio_mean")
+    meta_decay = _summary_series(baseline_summary, "meta_decay_ratio_mean")
+    regime_dwell = _summary_series(baseline_summary, "regime_dwell_mean")
+    meta_active = _summary_series(baseline_summary, "meta_active_directional_ratio_mean")
+    meta_inactive = _summary_series(baseline_summary, "meta_inactive_directional_ratio_mean")
+
     return {
-        "abs_return_clustering": bool((baseline_summary["abs_return_acf1_mean"] > 0.0).all()),
-        "spread_variation": bool((baseline_summary["spread_unique_count_mean"] >= 3.0).all()),
-        "imbalance_signal": bool((baseline_summary["imbalance_next_mid_return_corr_mean"] > 0.0).all()),
-        "phase_separation": bool(
-            (baseline_summary["phase_spread_range_mean"] > 0.001).any()
-            or (baseline_summary["phase_fill_range_mean"] > 1.0).any()
+        "abs_return_clustering": bool((abs_return_acf1 > 0.0).all()),
+        "spread_variation": bool((spread_unique >= 3.0).all()),
+        "imbalance_signal": bool((imbalance_signal > 0.0).all()),
+        "phase_structure": bool(
+            (phase_spread_range > 0.001).any()
+            or (phase_fill_range > 1.0).any()
         ),
         "event_clustering": bool(
             (
-                (baseline_summary["buy_event_count_acf1_mean"] > 0.0)
-                & (baseline_summary["cancel_event_count_acf1_mean"] > 0.0)
+                (buy_event_acf1 > 0.0)
+                & (cancel_event_acf1 > 0.0)
             ).sum()
             >= 2
         ),
-        "shock_response": bool((baseline_summary["shock_to_calm_ratio_mean"] > 1.0).sum() >= 2),
+        "shock_response": bool((shock_ratio > 1.0).sum() >= 2),
+        "impact_decay": bool(
+            ((shock_decay > 0.0) & (shock_decay < 1.0)).sum()
+            >= 2
+            and ((meta_decay > 0.0) & (meta_decay < 1.0)).sum()
+            >= 2
+        ),
+        "depletion_recovery": bool((_summary_series(baseline_summary, "depletion_recovery_half_life_mean") > 0.0).all()),
+        "regime_persistence": bool((regime_dwell >= 2.0).sum() >= 2),
         "meta_directionality": bool(
-            (baseline_summary["meta_active_directional_ratio_mean"] > baseline_summary["meta_inactive_directional_ratio_mean"]).sum()
+            (meta_active > meta_inactive).sum()
             >= 2
         ),
     }
@@ -266,6 +316,19 @@ def evaluate_seed_stability(baseline_metrics: pd.DataFrame, baseline_summary: pd
     }
 
 
+def _first_available_column(frame: pd.DataFrame, candidates: Sequence[str]) -> str:
+    for column in candidates:
+        if column in frame.columns:
+            return column
+    return candidates[0]
+
+
+def _summary_series(frame: pd.DataFrame, column: str) -> pd.Series:
+    if column in frame.columns:
+        return frame[column].astype(float)
+    return pd.Series(0.0, index=frame.index, dtype=float)
+
+
 def remove_worst_seed_per_preset(frame: pd.DataFrame, metrics: Sequence[str]) -> pd.DataFrame:
     keep_rows = []
     for _, group in frame.groupby("preset", sort=False):
@@ -289,7 +352,10 @@ def remove_worst_seed_per_preset(frame: pd.DataFrame, metrics: Sequence[str]) ->
 def leave_one_out_centroid_accuracy(frame: pd.DataFrame, *, features: Sequence[str]) -> float:
     if frame.empty or frame["preset"].nunique() < 2:
         return 0.0
-    data = frame[list(features)].to_numpy(dtype=float)
+    usable_features = [feature for feature in features if feature in frame.columns]
+    if not usable_features:
+        return 0.0
+    data = frame[usable_features].to_numpy(dtype=float)
     labels = frame["preset"].to_numpy()
     correct = 0
     total = 0

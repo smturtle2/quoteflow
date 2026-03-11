@@ -5,6 +5,9 @@
 `orderwave` is a compact Python library for simulating a session-aware, state-conditioned aggregate limit order book and visualizing the result directly from the same `Market` object.
 `Market` is the supported public API; internal engine and model modules are intentionally not documented as stable imports.
 
+It is an aggregate order-book market-state simulator.
+It is not an order-level matching or fill-precision simulator.
+
 ![Overview](../assets/orderwave-built-in-overview.png)
 
 ## Pages

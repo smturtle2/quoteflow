@@ -89,7 +89,7 @@ Every plotting method returns a `matplotlib.figure.Figure`. Saving or displaying
 The current state returned by `get()` is intentionally compact.
 
 - `mid_price` follows the best bid and ask
-- `last_price` only updates on real executions
+- `last_price` only updates on realized trades
 - `day`, `session_step`, and `session_phase` expose the synthetic session clock
 - `trade_strength` is a symmetric `[-1, 1]` signed flow indicator
 - `bids` and `asks` contain up to `levels` visible price levels
@@ -101,7 +101,7 @@ The current state returned by `get()` is intentionally compact.
 - `get_labeled_event_history()` returns the joined event/debug table without manual `merge(...)`
 - `run()` returns a `SimulationResult` bundle with the typed snapshot plus available tables
 - `history_only` mode keeps `get_history()`, `plot()`, and `plot_book()`, but disables `get_event_history()`, `get_debug_history()`, and `plot_diagnostics()`
-- default `liquidity_backstop="always"` keeps the synthetic book two-sided, restores minimum visible depth after each step, and keeps the default path observable
+- default `liquidity_backstop="on_empty"` restores a missing side without forcing minimum visible depth after every step
 
 ## Reproducibility
 

@@ -173,6 +173,8 @@ def _sample_event_budget(
         multiplier = context.seasonality["limit"] * {"calm": 0.95, "directional": 1.05, "stressed": 0.9}[regime]
         multiplier *= 1.0 + (0.08 * (context.excitation["limit_bid_near"] + context.excitation["limit_ask_near"]))
         multiplier *= 1.0 + (0.12 * (context.best_depth_deficit_bid + context.best_depth_deficit_ask))
+        multiplier *= 1.0 + (0.1 * config.depletion_scale * (context.recovery_pressure + context.one_sided_pressure))
+        multiplier *= max(0.55, 1.0 - (0.06 * context.passive_withdrawal))
         if context.shock is not None and context.shock.name == "liquidity_drought":
             multiplier *= max(0.65, 1.0 - (0.18 * context.shock.intensity))
         scale = config.limit_rate_scale
@@ -182,6 +184,8 @@ def _sample_event_budget(
         multiplier = context.seasonality["market"] * {"calm": 0.9, "directional": 1.15, "stressed": 1.25}[regime]
         multiplier *= 1.0 + (0.12 * (context.excitation["market_buy"] + context.excitation["market_sell"]))
         multiplier *= 1.0 + (0.3 * abs(_meta_signal(context.meta_orders)) * (0.7 + (0.6 * config.meta_order_scale)))
+        multiplier *= 1.0 + (0.12 * context.impact_residue) + (0.08 * context.one_sided_pressure)
+        multiplier *= max(0.6, 1.0 - (0.05 * context.noise_fatigue))
         if context.shock is not None:
             if context.shock.name == "one_sided_taker_surge":
                 multiplier *= 1.0 + (0.35 * context.shock.intensity)
@@ -194,6 +198,7 @@ def _sample_event_budget(
         multiplier = context.seasonality["cancel"] * {"calm": 0.95, "directional": 1.05, "stressed": 1.18}[regime]
         multiplier *= 1.0 + (0.1 * (context.excitation["cancel_bid_near"] + context.excitation["cancel_ask_near"]))
         multiplier *= 1.0 + (0.14 * context.hidden_vol)
+        multiplier *= 1.0 + (0.08 * context.drought_age) + (0.1 * context.passive_withdrawal)
         if context.shock is not None:
             if context.shock.name == "liquidity_drought":
                 multiplier *= 1.0 + (0.28 * context.shock.intensity)
@@ -249,6 +254,9 @@ def _participant_mix_specs(
             "noise_taker": 0.1,
             "informed_meta": 0.07,
         }
+        weights["inventory_mm"] += 0.12 * config.participant_feedback_scale * min(context.recovery_pressure, 2.0)
+        weights["passive_lp"] = max(0.06, weights["passive_lp"] - (0.05 * context.passive_withdrawal))
+        weights["noise_taker"] = max(0.03, weights["noise_taker"] - (0.03 * context.noise_fatigue))
         same_meta = context.meta_orders["buy" if side == "bid" else "sell"]
         if same_meta is not None:
             weights["informed_meta"] += 0.08 * same_meta.urgency
@@ -265,6 +273,9 @@ def _participant_mix_specs(
             "noise_taker": 0.65,
             "informed_meta": 0.2,
         }
+        weights["noise_taker"] = max(0.08, weights["noise_taker"] - (0.06 * context.noise_fatigue))
+        weights["inventory_mm"] += 0.05 * config.participant_feedback_scale * abs(context.inventory_pressure)
+        weights["informed_meta"] += 0.07 * context.impact_residue
         same_meta = context.meta_orders[side]
         if same_meta is not None:
             scale_bias = max(config.meta_order_scale - 1.0, 0.0)
@@ -282,6 +293,8 @@ def _participant_mix_specs(
             "noise_taker": 0.15,
             "informed_meta": 0.13,
         }
+        weights["inventory_mm"] += 0.08 * context.recovery_pressure
+        weights["passive_lp"] += 0.05 * context.passive_withdrawal
         opposite_meta = context.meta_orders["buy" if side == "ask" else "sell"]
         if opposite_meta is not None:
             weights["informed_meta"] += 0.08 * opposite_meta.urgency
@@ -460,7 +473,10 @@ def _sample_limit_qty(
     profile = _participant_profile(participant_type)
     qty = rng.lognormal(mean=params.qty.limit_qty_log_mean + profile["qty_shift"], sigma=params.qty.limit_qty_log_sigma)
     same_deficit = context.best_depth_deficit_bid if side == "bid" else context.best_depth_deficit_ask
+    inventory_bias = context.inventory_pressure if side == "bid" else -context.inventory_pressure
     qty *= 1.0 + (0.45 * same_deficit * profile["replenish_weight"])
+    qty *= 1.0 + (0.08 * max(inventory_bias, 0.0) * profile["replenish_weight"])
+    qty *= max(0.55, 1.0 - (0.06 * context.passive_withdrawal))
     if context.session_phase == "open":
         qty *= 0.95
     elif context.session_phase == "mid":
@@ -484,6 +500,9 @@ def _sample_market_qty(
     directional_push = max(sign * fair_gap, 0.0)
     qty = rng.lognormal(mean=params.qty.market_qty_log_mean + profile["market_qty_shift"], sigma=params.qty.market_qty_log_sigma)
     qty *= 1.0 + (0.12 * directional_push) + (0.26 * context.hidden_vol)
+    qty *= 1.0 + (0.12 * context.impact_residue)
+    qty *= max(0.6, 1.0 - (0.05 * context.noise_fatigue))
+    qty *= 1.0 + (0.08 * max(sign * context.inventory_pressure, 0.0))
     meta_order = context.meta_orders[aggressor_side]
     if meta_order is not None:
         qty *= 1.0 + (0.35 * meta_order.urgency)

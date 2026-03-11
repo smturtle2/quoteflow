@@ -21,6 +21,16 @@ from orderwave.validation import (
 )
 
 PROFILE_DEFAULTS: dict[str, dict[str, int]] = {
+    "quality_regression": {
+        "baseline_seeds": 20,
+        "baseline_steps": 20_000,
+        "sensitivity_seeds": 8,
+        "sensitivity_steps": 15_000,
+        "long_run_seeds": 3,
+        "long_run_steps": 200_000,
+        "jobs": 1,
+        "render_diagnostics": 1,
+    },
     "full": {
         "baseline_seeds": 20,
         "baseline_steps": 20_000,
@@ -30,6 +40,16 @@ PROFILE_DEFAULTS: dict[str, dict[str, int]] = {
         "long_run_steps": 200_000,
         "jobs": 1,
         "render_diagnostics": 1,
+    },
+    "release_smoke": {
+        "baseline_seeds": 1,
+        "baseline_steps": 64,
+        "sensitivity_seeds": 1,
+        "sensitivity_steps": 32,
+        "long_run_seeds": 1,
+        "long_run_steps": 128,
+        "jobs": 1,
+        "render_diagnostics": 0,
     },
     "release": {
         "baseline_seeds": 1,
@@ -107,6 +127,13 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     profile = PROFILE_DEFAULTS[args.profile]
+    canonical_profile = {
+        "full": "quality_regression",
+        "quality_regression": "quality_regression",
+        "release": "release_smoke",
+        "release_smoke": "release_smoke",
+        "smoke": "release_smoke",
+    }[args.profile]
     baseline_steps = args.steps if args.steps is not None else args.baseline_steps
     baseline_seeds = args.seeds if args.seeds is not None else args.baseline_seeds
     sensitivity_steps = args.sensitivity_steps
@@ -136,6 +163,7 @@ def main() -> None:
 
     result = run_validation_pipeline(
         outdir=args.outdir,
+        profile_name=canonical_profile,
         presets=args.presets,
         baseline_seeds=baseline_seeds,
         baseline_steps=baseline_steps,

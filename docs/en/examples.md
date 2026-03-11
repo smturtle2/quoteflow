@@ -42,7 +42,7 @@ These built-in figures are meant to answer three different questions quickly:
 
 - what path did the simulator generate?
 - what does the current book look like?
-- does the path have useful microstructure signals?
+- does the path show useful market-state signals?
 
 ## Event Flow Inspection
 
@@ -76,7 +76,7 @@ figure = fast_market.plot(title="Compact overview")
 figure.savefig("orderwave-history-only.png")
 ```
 
-`history_only` mode is the lighter option for long sweeps when you only need compact history, visible-book plotting, and trade strength. In this mode, `get_event_history()`, `get_debug_history()`, and `plot_diagnostics()` intentionally raise `RuntimeError`.
+`history_only` mode is the lighter option for long sweeps when you only need compact history, visible-book plotting, and realized-trade imbalance. In this mode, `get_event_history()`, `get_debug_history()`, and `plot_diagnostics()` intentionally raise `RuntimeError`.
 
 ## CLI Example
 
@@ -103,10 +103,10 @@ The script writes:
 
 ## Validation Sweep
 
-Use the validation runner when you want the synthetic market-state validation pipeline rather than a single throughput snapshot.
+Use the validation runner when you want the market-state validation pipeline rather than a single throughput snapshot.
 
 ```bash
-python -m scripts.validate_orderwave --profile full --jobs 4 --outdir artifacts/validation
+python -m scripts.validate_orderwave --profile quality_regression --jobs 4 --outdir artifacts/validation
 ```
 
 The runner writes:
@@ -119,10 +119,10 @@ The runner writes:
 - `acceptance_decision.md`
 - `diagnostics_<preset>_<seed>.png` when diagnostics rendering is enabled
 
-Release builds run a dedicated `Release Validation` job that executes the shorter `--profile release` regression and compares it against `tests/golden/validation_release_baseline.json` before publish.
-That release profile is intentionally tiny so the CI release gate stays fast.
+Release builds run a dedicated `Release Validation` job that executes the shorter `--profile release_smoke` regression and compares it against `tests/golden/validation_release_baseline.json` before publish.
+That smoke profile is intentionally tiny so the CI release gate stays fast.
 
-The next engine improvement target is intentionally narrow: finer intra-step event feedback only.
+The current engine roadmap is broader market-state fidelity: preset separation, time structure, sensitivity control, and validation quality move together.
 
 ## Preset Comparison
 

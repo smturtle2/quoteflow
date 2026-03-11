@@ -74,6 +74,9 @@ def score_limit_levels(
             pressure_penalty = 0.1 * opposite_deficit * math.exp(-distance / 1.8)
             score += 0.45 * replenish_bonus * profile["replenish_weight"]
             score -= pressure_penalty
+            score += 0.12 * context.recovery_pressure * math.exp(-distance / 1.4)
+            score -= 0.08 * context.passive_withdrawal * math.exp(-distance / 1.2)
+            score += 0.06 * max(side_sign * context.inventory_pressure, 0.0) * math.exp(-distance / 1.8)
 
             if context.shock is not None:
                 if context.shock.name == "liquidity_drought" and context.shock.side == side and distance <= 1.0:
@@ -136,8 +139,11 @@ def _aggregate_limit_side_weight(
     log_weight += math.log(max(context.seasonality["limit"], 1e-6))
     log_weight += 0.12 * same_deficit
     log_weight += 0.05 * thinness
+    log_weight += 0.08 * context.recovery_pressure
+    log_weight -= 0.06 * context.passive_withdrawal
     log_weight += side_sign * signed_pressure
     log_weight -= 0.04 * context.spread_excess
+    log_weight += 0.05 * max(side_sign * context.inventory_pressure, 0.0)
     if context.shock is not None and context.shock.name == "liquidity_drought" and context.shock.side == side:
         log_weight -= 0.22 * context.shock.intensity
     meta_order = context.meta_orders["buy" if side == "bid" else "sell"]
@@ -178,6 +184,9 @@ def _aggregate_market_side_weight(
     log_weight += sign * signed_pressure
     log_weight += 0.08 * context.hidden_vol
     log_weight -= 0.14 * max(features.spread_ticks - 1, 0)
+    log_weight += 0.08 * context.impact_residue
+    log_weight -= 0.06 * context.noise_fatigue
+    log_weight += 0.05 * max(sign * context.inventory_pressure, 0.0)
 
     meta_order = context.meta_orders[side]
     if meta_order is not None:
@@ -217,6 +226,8 @@ def _aggregate_cancel_side_weight(
     log_weight += 0.18 * context.hidden_vol
     log_weight += sign * signed_pressure
     log_weight += 0.05 * (context.excitation["cancel_ask_near"] if side == "ask" else context.excitation["cancel_bid_near"])
+    log_weight += 0.06 * context.drought_age
+    log_weight += 0.04 * context.passive_withdrawal
 
     if context.shock is not None:
         if context.shock.name == "liquidity_drought" and context.shock.side == side:
@@ -258,6 +269,9 @@ def _dynamic_shape_profile(
         slope += 0.08 * spread_excess
         wall += 0.35 * spread_excess
         inside_bonus += 0.12 * same_deficit
+        intercept += 0.08 * context.recovery_pressure
+        intercept -= 0.06 * context.passive_withdrawal
+        inside_bonus += 0.05 * max(side_sign * context.inventory_pressure, 0.0)
 
         meta_order = context.meta_orders["buy" if side == "bid" else "sell"]
         if meta_order is not None:

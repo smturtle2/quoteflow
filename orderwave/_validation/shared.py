@@ -34,11 +34,11 @@ DEFAULT_SENSITIVITY_KNOBS: tuple[str, ...] = (
     "shock_scale",
 )
 DEFAULT_SENSITIVITY_SCALES: tuple[float, ...] = (0.5, 1.0, 1.5, 2.0)
+DEFAULT_VALIDATION_PROFILE = "quality_regression"
 CORE_SENSITIVITY_KNOBS: tuple[str, ...] = (
     "market_rate_scale",
     "cancel_rate_scale",
     "fair_price_vol_scale",
-    "excitation_scale",
     "meta_order_scale",
     "shock_scale",
 )
@@ -64,7 +64,7 @@ SOAK_PEAK_MEMORY_BUDGET_MB = {
 }
 BYTES_PER_LOGGED_EVENT_BUDGET = 300.0
 OPTIONAL_NUMERIC_COLUMNS = {"knob_scale", "repeat_idx"}
-VALIDATION_BASELINE_SCHEMA_VERSION = 1
+VALIDATION_BASELINE_SCHEMA_VERSION = 2
 VALIDATION_BASELINE_METRIC_RULES: dict[str, dict[str, tuple[str, float]]] = {
     "baseline": {
         "mean_spread_mean": ("abs", 0.003),
@@ -72,6 +72,9 @@ VALIDATION_BASELINE_METRIC_RULES: dict[str, dict[str, tuple[str, float]]] = {
         "abs_return_acf1_mean": ("abs", 0.08),
         "events_per_step_mean": ("abs", 8.0),
         "market_buy_share_mean": ("abs", 0.08),
+        "spread_q90_mean": ("abs", 0.01),
+        "return_tail_ratio_mean": ("abs", 0.75),
+        "one_sided_step_ratio_mean": ("max", 0.15),
     },
     "soak": {
         "peak_memory_mb_mean": ("max", 256.0),
@@ -106,6 +109,7 @@ class ValidationRun:
 class ValidationPipelineResult:
     """Collected outputs from the final validation pipeline."""
 
+    profile_name: str
     run_metrics: pd.DataFrame
     preset_summary: pd.DataFrame
     sensitivity_summary: pd.DataFrame
@@ -272,8 +276,8 @@ def sensitivity_target_metric(knob_name: str) -> str:
         "regime_transition_scale": "regime_switch_rate_mean",
         "seasonality_scale": "phase_structure_signal_mean",
         "excitation_scale": "event_clustering_mean",
-        "meta_order_scale": "meta_active_directional_ratio_mean",
-        "shock_scale": "shock_to_calm_ratio_mean",
+        "meta_order_scale": "meta_impact_ratio_mean",
+        "shock_scale": "shock_impact_ratio_mean",
     }
     return mapping[knob_name]
 

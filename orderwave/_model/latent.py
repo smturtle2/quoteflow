@@ -123,6 +123,9 @@ def advance_hidden_volatility(
     }[regime]
     target = regime_target + (0.65 * realized) + (0.06 * context.spread_excess) + excitation_push
     target *= (0.9 + 0.1 * seasonality) * shock_boost
+    target += 0.08 * context.recovery_pressure
+    target += 0.05 * context.one_sided_pressure
+    target += 0.04 * context.impact_residue
 
     vol_noise_scale = 0.9 + (0.08 * math.sqrt(clamp(config.fair_price_vol_scale, 0.5, 2.5)))
     next_hidden_vol = hidden_vol + (params.latent.hidden_vol_reversion * (target - hidden_vol))
@@ -171,6 +174,7 @@ def advance_directional_anchor(
         + (0.12 * return_signal)
         + (0.1 * excitation_signal)
         + (0.14 * shock_signal)
+        + (0.12 * context.impact_residue * (1.0 if current_anchor >= 0.0 else -1.0 if current_anchor < 0.0 else 0.0))
         + drift_pulse
     )
     noise_scale = 0.01 + (0.035 * profile.fair_vol)
@@ -225,6 +229,7 @@ def advance_hidden_fair_state(
         + (0.08 * slow_state_signal)
         + (0.02 * fast_state_signal)
         - 0.03 * context.imbalance_displacement
+        + (0.03 * context.impact_residue * math.copysign(1.0, context.directional_anchor if context.directional_anchor != 0.0 else 1.0))
     )
     fast_noise = params.latent.fast_fair_vol * fair_noise_scale * max(0.35, math.sqrt(context.hidden_vol)) * rng.normal()
     next_fast = fast_component + params.latent.fast_fair_reversion * (fast_target - fast_component) + fast_noise
@@ -366,6 +371,7 @@ def advance_shock_state(
     regime_scale = {"calm": 0.65, "directional": 1.0, "stressed": 1.4}[regime]
     spawn_prob = params.shock.shock_spawn_prob * config.shock_scale * context.seasonality["shock"] * regime_scale
     spawn_prob *= 0.7 + (0.3 * clamp(context.hidden_vol, 0.0, 2.0))
+    spawn_prob *= 1.0 + (0.12 * context.one_sided_pressure) + (0.08 * context.drought_age)
     if rng.random() >= clamp(spawn_prob, 0.0, 0.18):
         return None
 
@@ -435,6 +441,7 @@ def update_resiliency_state(
     depth_imbalance: float,
     best_bid_qty: int,
     best_ask_qty: int,
+    config: MarketConfig,
     params: PresetParams,
 ) -> tuple[float, float, float, float]:
     target_best_qty = max(1.0, math.exp(params.qty.limit_qty_log_mean) * seasonality_depth)
@@ -444,11 +451,12 @@ def update_resiliency_state(
     imbalance_target = _meta_signal(meta_orders)
     imbalance_displacement = abs(depth_imbalance - imbalance_target)
 
-    decay = math.exp(-1.0 / max(params.resiliency.resiliency_half_life, 1.0))
+    effective_half_life = max(params.resiliency.resiliency_half_life / max(config.resiliency_scale, 1e-6), 1.0)
+    decay = math.exp(-1.0 / effective_half_life)
     if shock is not None and shock.name == "liquidity_drought":
-        decay = min(0.985, decay + 0.08)
+        decay = min(0.99, decay + (0.08 * config.depletion_scale))
     if any(meta_orders.values()):
-        decay = min(0.985, decay + 0.05)
+        decay = min(0.99, decay + (0.05 * config.depletion_scale))
 
     next_spread_excess = max(spread_excess, current_spread_excess * decay)
     next_bid_deficit = max(best_bid_deficit, current_bid_deficit * decay)

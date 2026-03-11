@@ -1,6 +1,8 @@
 {
-  "schema_version": 1,
-  "liquidity_backstop_default": "always",
+  "schema_version": 2,
+  "market_identity": "aggregate_market_state_simulator",
+  "validation_profile": "release_smoke",
+  "liquidity_backstop_default": "on_empty",
   "acceptance": {
     "decision": "NO-GO",
     "invariants_ok": true,
@@ -171,5 +173,5 @@
       }
     }
   },
-  "next_focus": "finer_event_feedback"
+  "next_focus": "market_state_fidelity"
 }

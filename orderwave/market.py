@@ -68,6 +68,13 @@ class MarketSnapshot:
     trade_strength: float
     depth_imbalance: float
     regime: RegimeName
+    visible_levels_bid: int
+    visible_levels_ask: int
+    drought_age: float
+    recovery_pressure: float
+    impact_residue: float
+    regime_dwell: int
+    inventory_pressure: float
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -90,6 +97,13 @@ class MarketSnapshot:
             "trade_strength": float(self.trade_strength),
             "depth_imbalance": float(self.depth_imbalance),
             "regime": self.regime,
+            "visible_levels_bid": int(self.visible_levels_bid),
+            "visible_levels_ask": int(self.visible_levels_ask),
+            "drought_age": float(self.drought_age),
+            "recovery_pressure": float(self.recovery_pressure),
+            "impact_residue": float(self.impact_residue),
+            "regime_dwell": int(self.regime_dwell),
+            "inventory_pressure": float(self.inventory_pressure),
         }
 
 
@@ -196,6 +210,14 @@ class Market:
         self._best_depth_deficit_ask = 0.0
         self._imbalance_displacement = 0.0
         self._directional_anchor = 0.0
+        self._drought_age = 0.0
+        self._recovery_pressure = 0.0
+        self._one_sided_pressure = 0.0
+        self._impact_residue = 0.0
+        self._regime_dwell = 0
+        self._inventory_pressure = 0.0
+        self._passive_withdrawal_bias = 0.0
+        self._noise_fatigue = 0.0
 
         self._last_trade_price = self._init_price
         self._last_trade_side: str | None = None
@@ -450,6 +472,13 @@ class Market:
             "trade_strength": features.trade_strength,
             "depth_imbalance": features.depth_imbalance,
             "regime": self._regime,
+            "visible_levels_bid": len(bid_levels),
+            "visible_levels_ask": len(ask_levels),
+            "drought_age": float(self._drought_age),
+            "recovery_pressure": float(self._recovery_pressure),
+            "impact_residue": float(self._impact_residue),
+            "regime_dwell": int(self._regime_dwell),
+            "inventory_pressure": float(self._inventory_pressure),
         }
 
     def _build_result(self) -> SimulationResult:
@@ -529,6 +558,13 @@ def _snapshot_from_mapping(snapshot: Mapping[str, object]) -> MarketSnapshot:
         trade_strength=cast(float, snapshot["trade_strength"]),
         depth_imbalance=cast(float, snapshot["depth_imbalance"]),
         regime=cast(RegimeName, snapshot["regime"]),
+        visible_levels_bid=cast(int, snapshot["visible_levels_bid"]),
+        visible_levels_ask=cast(int, snapshot["visible_levels_ask"]),
+        drought_age=cast(float, snapshot["drought_age"]),
+        recovery_pressure=cast(float, snapshot["recovery_pressure"]),
+        impact_residue=cast(float, snapshot["impact_residue"]),
+        regime_dwell=cast(int, snapshot["regime_dwell"]),
+        inventory_pressure=cast(float, snapshot["inventory_pressure"]),
     )
 
 

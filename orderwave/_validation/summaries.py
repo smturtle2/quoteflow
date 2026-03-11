@@ -40,9 +40,30 @@ def summarize_validation_grid(run_metrics: pd.DataFrame) -> pd.DataFrame:
         "phase_spread_range",
         "phase_fill_range",
         "shock_to_calm_ratio",
+        "shock_impact_ratio",
+        "shock_decay_ratio",
         "meta_active_directional_ratio",
         "meta_inactive_directional_ratio",
+        "meta_active_impact_ratio",
+        "meta_impact_ratio",
+        "meta_decay_ratio",
         "regime_switch_rate",
+        "directional_regime_share",
+        "stressed_regime_share",
+        "spread_q90",
+        "spread_q99",
+        "abs_return_q90",
+        "abs_return_q99",
+        "return_tail_ratio",
+        "visible_levels_bid",
+        "visible_levels_ask",
+        "one_sided_ratio",
+        "one_sided_step_ratio",
+        "drought_age",
+        "recovery_pressure",
+        "impact_residue",
+        "regime_dwell",
+        "depletion_recovery_half_life",
         "steps_per_second",
         "peak_memory_mb",
         "bytes_per_logged_event",
@@ -89,15 +110,21 @@ def summarize_sensitivity_grid(sensitivity_metrics: pd.DataFrame) -> pd.DataFram
             "knob_name": knob_name,
             "knob_scale": float(knob_scale),
             "runs": int(len(frame)),
-            "limit_share_mean": safe_mean(frame["limit_share"]),
-            "events_per_step_market_mean": safe_mean(frame["events_per_step_market"]),
-            "cancel_share_mean": safe_mean(frame["cancel_share"]),
-            "realized_vol_mean": safe_mean(frame["realized_vol"]),
-            "regime_switch_rate_mean": safe_mean(frame["regime_switch_rate"]),
-            "phase_structure_signal_mean": safe_mean(frame["phase_spread_range"] + frame["phase_fill_range"]),
-            "event_clustering_mean": safe_mean((frame["buy_event_count_acf1"] + frame["cancel_event_count_acf1"]) / 2.0),
-            "meta_active_directional_ratio_mean": safe_mean(frame["meta_active_directional_ratio"]),
-            "shock_to_calm_ratio_mean": safe_mean(frame["shock_to_calm_ratio"]),
+            "limit_share_mean": safe_mean(_column_or_zero(frame, "limit_share")),
+            "events_per_step_market_mean": safe_mean(_column_or_zero(frame, "events_per_step_market")),
+            "cancel_share_mean": safe_mean(_column_or_zero(frame, "cancel_share")),
+            "realized_vol_mean": safe_mean(_column_or_zero(frame, "realized_vol")),
+            "regime_switch_rate_mean": safe_mean(_column_or_zero(frame, "regime_switch_rate")),
+            "phase_structure_signal_mean": safe_mean(_column_or_zero(frame, "phase_spread_range") + _column_or_zero(frame, "phase_fill_range")),
+            "event_clustering_mean": safe_mean((_column_or_zero(frame, "buy_event_count_acf1") + _column_or_zero(frame, "cancel_event_count_acf1")) / 2.0),
+            "meta_active_directional_ratio_mean": safe_mean(_column_or_zero(frame, "meta_active_directional_ratio")),
+            "meta_active_impact_ratio_mean": safe_mean(_column_with_fallback(frame, "meta_active_impact_ratio", "meta_active_directional_ratio")),
+            "meta_impact_ratio_mean": safe_mean(_column_with_fallback(frame, "meta_impact_ratio", "meta_active_directional_ratio")),
+            "shock_to_calm_ratio_mean": safe_mean(_column_or_zero(frame, "shock_to_calm_ratio")),
+            "shock_impact_ratio_mean": safe_mean(_column_with_fallback(frame, "shock_impact_ratio", "shock_to_calm_ratio")),
+            "return_tail_ratio_mean": safe_mean(_column_or_zero(frame, "return_tail_ratio")),
+            "one_sided_ratio_mean": safe_mean(_column_or_zero(frame, "one_sided_ratio")),
+            "one_sided_step_ratio_mean": safe_mean(_column_or_zero(frame, "one_sided_step_ratio")),
         }
         rows.append(row)
 
@@ -128,3 +155,15 @@ def summarize_sensitivity_grid(sensitivity_metrics: pd.DataFrame) -> pd.DataFram
 
 
 __all__ = ["summarize_sensitivity_grid", "summarize_validation_grid"]
+
+
+def _column_or_zero(frame: pd.DataFrame, column: str) -> pd.Series:
+    if column in frame.columns:
+        return frame[column].astype(float)
+    return pd.Series(0.0, index=frame.index, dtype=float)
+
+
+def _column_with_fallback(frame: pd.DataFrame, column: str, fallback: str) -> pd.Series:
+    if column in frame.columns:
+        return frame[column].astype(float)
+    return _column_or_zero(frame, fallback)

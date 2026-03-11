@@ -16,10 +16,10 @@ PyPI 배포는 [`workflow.yml`](https://github.com/smturtle2/quoteflow/blob/main
 PyPI publish 전에 워크플로는 아래 짧은 validation 명령을 실행합니다.
 
 ```bash
-python -m scripts.validate_orderwave --profile release --outdir artifacts/validation-release --baseline-json tests/golden/validation_release_baseline.json --fail-on-baseline-drift
+python -m scripts.validate_orderwave --profile release_smoke --outdir artifacts/validation-release --baseline-json tests/golden/validation_release_baseline.json --fail-on-baseline-drift
 ```
 
-이 release profile은 full validation sweep보다 훨씬 작아서 CI 릴리스 게이트를 빠르게 유지합니다.
+이 smoke profile은 full quality regression sweep보다 훨씬 작아서 CI 릴리스 게이트를 빠르게 유지합니다.
 
 ## Trusted Publisher 설정
 

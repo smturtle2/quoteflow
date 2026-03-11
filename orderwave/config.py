@@ -54,6 +54,13 @@ class MarketConfig:
         Strength of latent directional meta-order spawning and persistence.
     shock_scale:
         Strength of exogenous shock spawning and impact.
+    resiliency_scale:
+        Multiplier applied to how quickly spread/depth deficits recover.
+    depletion_scale:
+        Multiplier applied to how strongly thin-book and depletion states persist.
+    participant_feedback_scale:
+        Multiplier applied to participant-state feedback such as inventory
+        pressure, withdrawal bias, and fatigue.
     logging_mode:
         Logging level for stored simulator history. ``"full"`` retains
         summary, event, debug, and plot history. ``"history_only"`` keeps
@@ -78,8 +85,11 @@ class MarketConfig:
     excitation_scale: float = 1.0
     meta_order_scale: float = 1.0
     shock_scale: float = 1.0
+    resiliency_scale: float = 1.0
+    depletion_scale: float = 1.0
+    participant_feedback_scale: float = 1.0
     logging_mode: LoggingMode = "full"
-    liquidity_backstop: LiquidityBackstopMode = "always"
+    liquidity_backstop: LiquidityBackstopMode = "on_empty"
 
 
 @dataclass(frozen=True)
@@ -514,6 +524,9 @@ def coerce_config(config: MarketConfig | Mapping[str, object] | None, levels: in
         "excitation_scale",
         "meta_order_scale",
         "shock_scale",
+        "resiliency_scale",
+        "depletion_scale",
+        "participant_feedback_scale",
     ):
         if getattr(market_config, field_name) <= 0.0:
             raise ValueError(f"{field_name} must be positive")

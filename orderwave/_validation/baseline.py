@@ -43,7 +43,9 @@ def extract_validation_baseline(result: ValidationPipelineResult) -> dict[str, A
     acceptance = result.acceptance
     return {
         "schema_version": VALIDATION_BASELINE_SCHEMA_VERSION,
-        "liquidity_backstop_default": "always",
+        "market_identity": "aggregate_market_state_simulator",
+        "validation_profile": result.profile_name,
+        "liquidity_backstop_default": "on_empty",
         "acceptance": {
             "decision": str(acceptance["decision"]),
             "invariants_ok": bool(acceptance["invariants_ok"]),
@@ -62,7 +64,7 @@ def extract_validation_baseline(result: ValidationPipelineResult) -> dict[str, A
             "sensitivity_checks": sensitivity_by_knob,
         },
         "metrics": metrics,
-        "next_focus": "finer_event_feedback",
+        "next_focus": "market_state_fidelity",
     }
 
 
@@ -152,6 +154,14 @@ def compare_validation_baseline(
         failures.append(
             "liquidity_backstop_default: "
             f"expected {baseline.get('liquidity_backstop_default')!r}, got {actual.get('liquidity_backstop_default')!r}"
+        )
+    if baseline.get("market_identity") is not None and actual.get("market_identity") != baseline.get("market_identity"):
+        failures.append(
+            f"market_identity: expected {baseline.get('market_identity')!r}, got {actual.get('market_identity')!r}"
+        )
+    if baseline.get("validation_profile") is not None and actual.get("validation_profile") != baseline.get("validation_profile"):
+        failures.append(
+            f"validation_profile: expected {baseline.get('validation_profile')!r}, got {actual.get('validation_profile')!r}"
         )
 
     return {

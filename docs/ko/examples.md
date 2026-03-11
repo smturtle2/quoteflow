@@ -42,7 +42,7 @@ diagnostics.savefig("orderwave-diagnostics.png")
 
 - 시뮬레이터가 어떤 경로를 만들었는가?
 - 현재 호가장은 어떤 모양인가?
-- 생성된 경로가 유용한 미시구조 신호를 갖는가?
+- 생성된 경로가 유용한 시장상태 신호를 갖는가?
 
 ## Event Flow 확인
 
@@ -76,7 +76,7 @@ figure = fast_market.plot(title="Compact overview")
 figure.savefig("orderwave-history-only.png")
 ```
 
-`history_only`는 compact history, visible-book plotting, trade strength만 필요할 때 쓰는 경량 모드입니다. 이 모드에서는 `get_event_history()`, `get_debug_history()`, `plot_diagnostics()`가 의도적으로 `RuntimeError`를 발생시킵니다.
+`history_only`는 compact history, visible-book plotting, 체결량 기반 imbalance만 필요할 때 쓰는 경량 모드입니다. 이 모드에서는 `get_event_history()`, `get_debug_history()`, `plot_diagnostics()`가 의도적으로 `RuntimeError`를 발생시킵니다.
 
 ## CLI 예제
 
@@ -103,10 +103,10 @@ python -m scripts.measure_performance --preset balanced --seeds 20 --steps 20000
 
 ## 검증 스윕
 
-단일 throughput 측정이 아니라 synthetic market-state 검증 파이프라인을 돌리려면 validation runner를 사용하면 됩니다.
+단일 throughput 측정이 아니라 시장상태 검증 파이프라인을 돌리려면 validation runner를 사용하면 됩니다.
 
 ```bash
-python -m scripts.validate_orderwave --profile full --jobs 4 --outdir artifacts/validation
+python -m scripts.validate_orderwave --profile quality_regression --jobs 4 --outdir artifacts/validation
 ```
 
 runner는 다음 산출물을 생성합니다.
@@ -119,10 +119,10 @@ runner는 다음 산출물을 생성합니다.
 - `acceptance_decision.md`
 - diagnostics 렌더링이 켜진 경우 `diagnostics_<preset>_<seed>.png`
 
-release 빌드는 별도의 `Release Validation` job에서 더 짧은 `--profile release` 회귀를 돌리고 `tests/golden/validation_release_baseline.json`과 비교한 뒤 publish를 진행합니다.
-이 release profile은 CI 릴리스 게이트를 빠르게 유지하도록 아주 작게 유지합니다.
+release 빌드는 별도의 `Release Validation` job에서 더 짧은 `--profile release_smoke` 회귀를 돌리고 `tests/golden/validation_release_baseline.json`과 비교한 뒤 publish를 진행합니다.
+이 smoke profile은 CI 릴리스 게이트를 빠르게 유지하도록 아주 작게 유지합니다.
 
-다음 엔진 개선 범위는 의도적으로 좁게 유지합니다. 다음 단계는 finer intra-step event feedback만 다룹니다.
+현재 엔진 로드맵은 더 넓은 market-state fidelity입니다. preset 분리, 시간구조, sensitivity control, validation 품질을 함께 강화합니다.
 
 ## Preset 비교
 

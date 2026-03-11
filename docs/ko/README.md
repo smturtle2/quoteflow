@@ -5,6 +5,9 @@
 `orderwave`는 session-aware 상태조건부 aggregate limit order book을 시뮬레이션하고, 같은 `Market` 객체에서 결과를 바로 시각화할 수 있는 파이썬 라이브러리입니다.
 지원되는 공개 API는 `Market`이며, 내부 engine/model 모듈은 안정적인 import 경로로 문서화하지 않습니다.
 
+공식 정체성은 aggregate order-book market-state simulator입니다.
+주문 단위 매칭이나 체결 정밀도를 목표로 하는 시뮬레이터는 아닙니다.
+
 ![Overview](../assets/orderwave-built-in-overview.png)
 
 ## 문서 목록

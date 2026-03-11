@@ -33,6 +33,7 @@ Market(
 ```
 
 `Market`는 메인 공개 진입점입니다. `step == 0`에서 초기 aggregate order book을 시드하고 compact history를 즉시 기록하며, built-in plotting을 위한 private visual history도 함께 유지합니다.
+`orderwave`는 aggregate order-book market-state simulator로 읽는 것이 맞습니다. 초점은 order-level fill 정밀도가 아니라 경로, book state, regime dynamics에 있습니다.
 `preset`, `logging_mode`, `liquidity_backstop`은 `config` 안의 같은 필드를 덮어쓰는 convenience keyword입니다.
 
 ### `step() -> dict`
@@ -87,7 +88,7 @@ Market(
 - `depth_imbalance`
 - `regime`
 
-`trade_strength`는 execution-only signed imbalance입니다. 실제 aggressor buy/sell 체결량의 EWMA로 계산되며, quote-only 변화로는 바뀌지 않습니다.
+`trade_strength`는 체결량 기반 signed imbalance입니다. 실제 aggressor buy/sell 체결량의 EWMA로 계산되며, quote-only 변화로는 바뀌지 않습니다.
 
 `config={"logging_mode": "history_only"}`를 쓰면 snapshot과 compact history는 그대로 유지되지만, event/debug API는 의도적으로 비활성화됩니다.
 
@@ -157,6 +158,13 @@ event 컬럼은 그대로 유지하고, 아래 debug 전용 컬럼이 뒤에 붙
 - `meta_order_progress`
 - `burst_state`
 - `shock_state`
+- `drought_age`
+- `recovery_pressure`
+- `impact_residue`
+- `regime_dwell`
+- `inventory_pressure`
+- `visible_levels_bid`
+- `visible_levels_ask`
 
 이 메서드는 `logging_mode="full"`에서만 동작하며, `history_only`에서는 `RuntimeError`를 발생시킵니다.
 
@@ -178,6 +186,13 @@ event-aligned latent debug stream을 반환합니다.
 - `meta_order_progress`
 - `burst_state`
 - `shock_state`
+- `drought_age`
+- `recovery_pressure`
+- `impact_residue`
+- `regime_dwell`
+- `inventory_pressure`
+- `visible_levels_bid`
+- `visible_levels_ask`
 
 `get_debug_history()`는 `get_event_history()`와 같은 `step`, `event_idx` 키를 공유합니다. 기본 사용 흐름보다는 고급 검증과 diagnostics용 API입니다.
 
@@ -235,6 +250,9 @@ from orderwave.config import MarketConfig
 - `excitation_scale`
 - `meta_order_scale`
 - `shock_scale`
+- `resiliency_scale`
+- `depletion_scale`
+- `participant_feedback_scale`
 - `logging_mode`
 - `liquidity_backstop`
 
