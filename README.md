@@ -2,7 +2,7 @@
 
 Compact aggregate order-book simulation for Python, with readable built-in heatmaps.
 
-`orderwave` keeps the runtime model small: a sparse bid/ask book, bounded mean-reverting fair value, and a queue-reactive liquidity kernel that drives buy/sell flow clustering, side-specific cancel pressure, refill lag, and gap recovery without reintroducing the older heuristic stack.
+`orderwave` keeps the runtime model small: a sparse bid/ask book, bounded mean-reverting fair value, and a regime-aware queue-reactive liquidity kernel that drives buy/sell flow clustering, side-specific cancel pressure, refill lag, execution episodes, and gap recovery without reintroducing the older heuristic stack.
 
 ![Overview](docs/assets/orderwave-built-in-overview.png)
 
@@ -79,8 +79,8 @@ History columns:
 
 - Fair price follows a bounded mean-reverting Gaussian process with short-memory flow feedback.
 - Buy/sell market flow, bid/ask cancel flow, and bid/ask limit flow all use state-dependent Poisson intensities rather than one shared shuffled event pool.
-- The internal kernel tracks buy/sell flow impulse, side-specific cancel pressure, side-specific refill lag, and gap pressure.
-- Limit placement is split into join, touch refill, gap fill, and deep add families so the book can hold holes and recover instead of being perfectly refilled every step.
+- The internal kernel tracks buy/sell flow impulse, side-specific cancel pressure, side-specific refill lag, gap pressure, hidden liquidity regime, and persistent execution pressure.
+- Limit placement is split into join, touch refill, gap fill, connected shelf, and isolated wall families so the book can hold holes and recover instead of being perfectly refilled every step.
 - Repair is safety-only: it prevents one-sided or crossed books, but it no longer backfills every visible level.
 
 ## Realism Profiling
@@ -91,7 +91,7 @@ Profile generic microstructure behavior with:
 python -m scripts.profile_realism --steps 5000
 ```
 
-The profiler reports spread persistence, trade-sign autocorrelation, same-step and next-step impact, top-rank gap frequency, and spread recovery lag.
+The profiler reports spread/impact persistence, trade-sign autocorrelation, top-rank gap frequency, per-rank depth shape, shock-side cancel/refill skew, hidden regime occupancy, and connected-vs-isolated deep liquidity structure.
 
 ## Documentation Assets
 

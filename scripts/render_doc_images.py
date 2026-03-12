@@ -16,7 +16,7 @@ def render_overview(outdir: Path) -> None:
     figure = market.plot(
         max_steps=720,
         price_window_ticks=12,
-        title="Order flow becomes price",
+        title="Regime-aware order flow becomes price",
         figsize=(14.5, 9.0),
     )
     figure.savefig(outdir / "orderwave-built-in-overview.png", dpi=180, bbox_inches="tight")
@@ -38,7 +38,7 @@ def render_diagnostics(outdir: Path) -> None:
         anchor="price",
         max_steps=900,
         price_window_ticks=12,
-        title="Stable level-ranked signed depth heatmap",
+        title="Regime-aware level-ranked signed depth heatmap",
         figsize=(13.5, 7.5),
     )
     figure.savefig(outdir / "orderwave-built-in-diagnostics.png", dpi=180, bbox_inches="tight")

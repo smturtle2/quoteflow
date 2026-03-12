@@ -2,7 +2,7 @@
 
 가독성 좋은 built-in heatmap을 다시 포함한 compact aggregate order-book 시뮬레이터입니다.
 
-`orderwave`는 runtime 모델을 작게 유지합니다. sparse bid/ask book, bounded mean-reverting fair value, 그리고 buy/sell flow clustering, side별 cancel pressure, refill lag, gap recovery를 만드는 queue-reactive liquidity kernel만 둡니다. 예전의 큰 heuristic 트리는 복구하지 않습니다.
+`orderwave`는 runtime 모델을 작게 유지합니다. sparse bid/ask book, bounded mean-reverting fair value, 그리고 buy/sell flow clustering, side별 cancel pressure, refill lag, execution episode, gap recovery를 만드는 regime-aware queue-reactive liquidity kernel만 둡니다. 예전의 큰 heuristic 트리는 복구하지 않습니다.
 
 ![Overview](docs/assets/orderwave-built-in-overview.png)
 
@@ -79,8 +79,8 @@ History column:
 
 - fair price는 short-memory flow feedback이 섞인 bounded mean-reverting Gaussian process로 움직입니다.
 - buy/sell market flow, bid/ask cancel flow, bid/ask limit flow는 하나의 shuffled event pool이 아니라 상태의존 Poisson intensity로 샘플링합니다.
-- 내부 커널은 buy/sell flow impulse, side별 cancel pressure, side별 refill lag, gap pressure를 추적합니다.
-- limit placement는 join, touch refill, gap fill, deep add 네 가족으로 나눠서, hole이 남고 천천히 회복되는 book을 만들 수 있게 합니다.
+- 내부 커널은 buy/sell flow impulse, side별 cancel pressure, side별 refill lag, gap pressure, hidden liquidity regime, persistent execution pressure를 추적합니다.
+- limit placement는 join, touch refill, gap fill, connected shelf, isolated wall 다섯 가족으로 나눠서, hole이 남고 천천히 회복되는 book을 만들 수 있게 합니다.
 - repair는 safety-only입니다. one-sided/crossed book만 막고, visible level을 매 step 강제로 채우지는 않습니다.
 
 ## Realism 프로파일링
@@ -91,7 +91,7 @@ History column:
 python -m scripts.profile_realism --steps 5000
 ```
 
-출력에는 spread persistence, trade-sign autocorrelation, same-step/next-step impact, 상위 rank gap 빈도, spread recovery lag가 포함됩니다.
+출력에는 spread/impact persistence, trade-sign autocorrelation, 상위 rank gap 빈도, rank별 depth shape, shock-side cancel/refill skew, hidden regime 점유율, connected-vs-isolated deep liquidity 구조가 포함됩니다.
 
 ## 문서 이미지
 
