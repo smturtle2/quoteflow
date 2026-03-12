@@ -1,8 +1,8 @@
 # orderwave
 
-Compact aggregate order-book simulation for Python.
+Compact aggregate order-book simulation for Python, with readable built-in heatmaps.
 
-`orderwave` generates a sparse bid/ask book, samples limit/market/cancel flow from explicit distributions, and records a small summary history. The public API is intentionally narrow: build a `Market`, step or run it, inspect the latest snapshot, and read the summary frame.
+`orderwave` keeps the runtime model small: a sparse bid/ask book, Poisson limit/market/cancel flow, bounded mean-reverting fair value, and a light liquidity-state kernel that creates sweep and refill structure without the older heuristic stack.
 
 ![Overview](docs/assets/orderwave-built-in-overview.png)
 
@@ -17,37 +17,31 @@ pip install orderwave
 ```python
 from orderwave import Market
 
-market = Market(seed=42)
+market = Market(seed=42, capture="visual")
 result = market.run(steps=1_000)
 
 snapshot = result.snapshot
 history = result.history
-```
-
-Common overrides stay in `config`:
-
-```python
-from orderwave import Market, MarketConfig
-
-config = MarketConfig(
-    market_rate=3.0,
-    fair_price_vol=0.45,
-    max_spread_ticks=4,
-)
-
-market = Market(seed=7, config=config)
-market.gen(steps=500)
-snapshot = market.get()
+overview = market.plot()
+heatmap = market.plot_heatmap(anchor="price")
+book = market.plot_book()
 ```
 
 ## Public API
 
-- `Market(...)`: create a simulator with an initial price, tick size, visible depth, seed, and optional `MarketConfig`.
+- `Market(...)`: create a simulator with an initial price, tick size, visible depth, seed, optional `MarketConfig`, and `capture="summary" | "visual"`.
 - `step()`: advance one step and return the latest snapshot.
 - `gen(steps)`: run multiple steps and return the latest snapshot.
 - `run(steps)`: return `SimulationResult(snapshot=..., history=...)`.
 - `get()`: return the current snapshot as a `dict`.
 - `get_history()`: return the summary history as a `pandas.DataFrame`.
+- `plot()`: render the price path with a mid-anchored signed-depth heatmap. Requires `capture="visual"`.
+- `plot_heatmap(anchor="mid" | "price")`: render a standalone heatmap. Requires `capture="visual"`.
+- `plot_book()`: render the current order book.
+
+`capture="summary"` keeps the fast path lean. `capture="visual"` stores a fixed signed-depth window around the moving market center so the heatmap can show sweep, void, and refill structure clearly.
+
+## Snapshot and History
 
 Snapshot fields:
 
@@ -83,15 +77,11 @@ History columns:
 
 ## Model
 
-The simulator keeps only one internal model family:
-
 - Fair price follows a bounded mean-reverting Gaussian process.
 - Limit, market, and cancel counts are sampled from Poisson distributions.
-- Event side is driven by fair-value gap and current depth imbalance.
-- Event level is sampled from a truncated decay distribution.
-- Event size is sampled from a bounded lognormal distribution.
-
-There are no presets, participant taxonomies, latent regimes, validation pipelines, or plotting APIs in the runtime package.
+- Event side is driven by fair-value gap, depth imbalance, and recent signed flow.
+- Limit placement mixes inside join/improve, best-level refill, and deeper wall placement.
+- Aggressive flow raises side-specific stress and refill pressure so the heatmap shows asymmetric withdrawal and recovery.
 
 ## Documentation Assets
 
@@ -105,6 +95,12 @@ Regenerate the documentation images with:
 
 ```bash
 python -m scripts.render_doc_images
+```
+
+Render the standalone heatmap example with:
+
+```bash
+python -m examples.plot_market_heatmap --output artifacts/orderwave_heatmap.png
 ```
 
 More docs:

@@ -34,8 +34,14 @@ def test_market_config_mapping_and_validation() -> None:
     assert market.config.market_rate == 3.0
     assert market.config.max_spread_ticks == 4
 
+    visual_market = Market(seed=9, capture="visual")
+    assert visual_market.capture == "visual"
+
     with pytest.raises(ValueError, match="mean_reversion"):
         Market(config={"mean_reversion": 1.5})
 
     with pytest.raises(ValueError, match="unknown MarketConfig fields"):
         Market(config={"preset": "trend"})
+
+    with pytest.raises(ValueError, match="capture"):
+        Market(capture="full")  # type: ignore[arg-type]

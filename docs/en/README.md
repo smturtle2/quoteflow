@@ -1,6 +1,9 @@
 # orderwave Documentation
 
-`orderwave` is a compact event-based aggregate book simulator. It is meant for synthetic order-book paths, lightweight experiments, and deterministic smoke-scale research runs.
+`orderwave` is a compact event-based aggregate book simulator with two runtime modes:
+
+- `capture="summary"` for the fast path
+- `capture="visual"` for overview and heatmap plots
 
 ## Runtime Surface
 
@@ -8,54 +11,23 @@
 - `MarketConfig`
 - `SimulationResult`
 
-Everything else is internal. The package no longer exposes plotting helpers, validation helpers, presets, or latent market-state labels.
-
 ## MarketConfig
 
-`MarketConfig` exposes exactly these controls:
+`MarketConfig` still exposes only the statistical controls for flow intensity, fair-value movement, price-level decay, order-size bounds, and spread/fair-move limits.
 
-- `limit_rate`
-- `market_rate`
-- `cancel_rate`
-- `fair_price_vol`
-- `mean_reversion`
-- `level_decay`
-- `size_mean`
-- `size_dispersion`
-- `min_order_qty`
-- `max_order_qty`
-- `max_spread_ticks`
-- `max_fair_move_ticks`
+## Plotting
 
-Validation rules:
+The plotting surface is:
 
-- rates must be greater than `0`
-- `mean_reversion` must be in `[0, 1]`
-- `level_decay` must be in `(0, 1)`
-- `size_dispersion` must be greater than `0`
-- `min_order_qty` must be at least `1`
-- `max_order_qty` must be greater than or equal to `min_order_qty`
-- `max_spread_ticks` must be at least `1`
-- `max_fair_move_ticks` must be at least `1`
+- `plot()` for the overview figure
+- `plot_heatmap(anchor="mid" | "price")` for a standalone signed-depth heatmap
+- `plot_book()` for the current ladder snapshot
 
-## Snapshot and History
+Heatmap semantics:
 
-`get()` returns the latest snapshot as a plain dictionary. `get_history()` returns the same core fields over time:
-
-- `step`
-- `last_price`
-- `mid_price`
-- `best_bid`
-- `best_ask`
-- `spread`
-- `bid_depth`
-- `ask_depth`
-- `depth_imbalance`
-- `buy_aggr_volume`
-- `sell_aggr_volume`
-- `fair_price`
-
-The snapshot also includes visible `bids` and `asks` for the current book view.
+- `anchor="mid"` centers rows on the moving market center and is best for reading sweeps and refills.
+- `anchor="price"` uses the real price axis and is best for reading drift and persistent walls.
+- Colors are signed depth with robust asinh scaling, so one large wall does not flatten the rest of the book.
 
 ## Documentation Images
 
@@ -65,9 +37,8 @@ Regenerate all documentation assets with:
 python -m scripts.render_doc_images
 ```
 
-The script writes:
+Standalone example:
 
-- `docs/assets/orderwave-built-in-overview.png`
-- `docs/assets/orderwave-built-in-current-book.png`
-- `docs/assets/orderwave-built-in-diagnostics.png`
-- `docs/assets/orderwave-built-in-presets.png`
+```bash
+python -m examples.plot_market_heatmap --output artifacts/orderwave_heatmap.png
+```

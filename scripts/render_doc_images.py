@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Regenerate documentation images for the compact orderwave API."""
+"""Regenerate documentation images for the current orderwave API."""
 
 from argparse import ArgumentParser
 from pathlib import Path
@@ -11,71 +11,37 @@ from orderwave import Market
 
 
 def render_overview(outdir: Path) -> None:
-    market = Market(seed=42)
-    history = market.run(steps=300).history
-
-    figure, axis = plt.subplots(figsize=(11, 5))
-    axis.plot(history["step"], history["mid_price"], label="mid")
-    axis.plot(history["step"], history["last_price"], label="last", alpha=0.8)
-    axis.plot(history["step"], history["fair_price"], label="fair", alpha=0.8)
-    axis.set_title("Orderwave Price Path")
-    axis.set_xlabel("Step")
-    axis.set_ylabel("Price")
-    axis.legend()
-    axis.grid(alpha=0.25)
-    figure.tight_layout()
-    figure.savefig(outdir / "orderwave-built-in-overview.png", dpi=160)
+    market = Market(seed=42, capture="visual")
+    market.run(steps=720)
+    figure = market.plot(
+        max_steps=720,
+        price_window_ticks=12,
+        title="Order flow becomes price",
+        figsize=(14.5, 9.0),
+    )
+    figure.savefig(outdir / "orderwave-built-in-overview.png", dpi=180, bbox_inches="tight")
     plt.close(figure)
 
 
 def render_current_book(outdir: Path) -> None:
-    market = Market(seed=42)
-    market.run(steps=300)
-    snapshot = market.get()
-
-    figure, axis = plt.subplots(figsize=(9, 5))
-    bid_prices = [level["price"] for level in snapshot["bids"]]
-    bid_qtys = [level["qty"] for level in snapshot["bids"]]
-    ask_prices = [level["price"] for level in snapshot["asks"]]
-    ask_qtys = [level["qty"] for level in snapshot["asks"]]
-
-    axis.barh(bid_prices, bid_qtys, color="#0f766e", alpha=0.85, label="bids")
-    axis.barh(ask_prices, ask_qtys, color="#b91c1c", alpha=0.80, label="asks")
-    axis.axhline(snapshot["mid_price"], color="#111827", linewidth=1.2, linestyle="--", label="mid")
-    axis.set_title("Visible Aggregate Book")
-    axis.set_xlabel("Quantity")
-    axis.set_ylabel("Price")
-    axis.legend()
-    axis.grid(alpha=0.20)
-    figure.tight_layout()
-    figure.savefig(outdir / "orderwave-built-in-current-book.png", dpi=160)
+    market = Market(seed=42, capture="visual")
+    market.run(steps=720)
+    figure = market.plot_book(levels=10, title="Current order book snapshot", figsize=(11, 6.8))
+    figure.savefig(outdir / "orderwave-built-in-current-book.png", dpi=180, bbox_inches="tight")
     plt.close(figure)
 
 
 def render_diagnostics(outdir: Path) -> None:
-    market = Market(seed=42)
-    history = market.run(steps=300).history
-
-    figure, axes = plt.subplots(3, 1, figsize=(11, 8), sharex=True)
-
-    axes[0].plot(history["step"], history["spread"], color="#1d4ed8")
-    axes[0].set_ylabel("Spread")
-    axes[0].grid(alpha=0.25)
-
-    axes[1].plot(history["step"], history["depth_imbalance"], color="#7c3aed")
-    axes[1].set_ylabel("Imbalance")
-    axes[1].grid(alpha=0.25)
-
-    axes[2].plot(history["step"], history["buy_aggr_volume"], label="buy aggr", color="#0f766e")
-    axes[2].plot(history["step"], history["sell_aggr_volume"], label="sell aggr", color="#b91c1c")
-    axes[2].set_ylabel("Aggressive Volume")
-    axes[2].set_xlabel("Step")
-    axes[2].legend()
-    axes[2].grid(alpha=0.25)
-
-    figure.suptitle("Compact Diagnostics")
-    figure.tight_layout()
-    figure.savefig(outdir / "orderwave-built-in-diagnostics.png", dpi=160)
+    market = Market(seed=11, capture="visual", config={"market_rate": 3.4, "cancel_rate": 4.8, "fair_price_vol": 0.45})
+    market.run(steps=1_000)
+    figure = market.plot_heatmap(
+        anchor="price",
+        max_steps=900,
+        price_window_ticks=18,
+        title="Price-anchored signed depth heatmap",
+        figsize=(13.5, 7.5),
+    )
+    figure.savefig(outdir / "orderwave-built-in-diagnostics.png", dpi=180, bbox_inches="tight")
     plt.close(figure)
 
 
@@ -86,19 +52,26 @@ def render_variants(outdir: Path) -> None:
         "faster tape": {"market_rate": 3.8, "cancel_rate": 5.0, "fair_price_vol": 0.45},
     }
 
-    figure, axis = plt.subplots(figsize=(11, 5))
-    for label, config in variants.items():
+    figure, axes = plt.subplots(1, 3, figsize=(16, 4.8), sharey=True, constrained_layout=True)
+    for axis, (label, config) in zip(axes, variants.items(), strict=True):
         market = Market(seed=42, config=config)
-        history = market.run(steps=250).history
-        axis.plot(history["step"], history["mid_price"], label=label)
-
-    axis.set_title("Configuration Variants")
-    axis.set_xlabel("Step")
-    axis.set_ylabel("Mid Price")
-    axis.legend()
-    axis.grid(alpha=0.25)
-    figure.tight_layout()
-    figure.savefig(outdir / "orderwave-built-in-presets.png", dpi=160)
+        history = market.run(steps=320).history
+        axis.plot(history["step"], history["mid_price"], color="#0f172a", linewidth=1.6, label="mid")
+        axis.plot(history["step"], history["fair_price"], color="#0f766e", linewidth=1.0, alpha=0.85, label="fair")
+        axis.fill_between(
+            history["step"],
+            history["best_bid"],
+            history["best_ask"],
+            color="#94a3b8",
+            alpha=0.22,
+        )
+        axis.set_title(label)
+        axis.set_xlabel("Step")
+        axis.grid(alpha=0.25, linestyle="--")
+    axes[0].set_ylabel("Price")
+    axes[0].legend(loc="upper left", frameon=False)
+    figure.suptitle("Configuration variants")
+    figure.savefig(outdir / "orderwave-built-in-presets.png", dpi=180, bbox_inches="tight")
     plt.close(figure)
 
 

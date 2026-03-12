@@ -1,8 +1,8 @@
 # orderwave
 
-Python용 간결한 aggregate order-book 시뮬레이터입니다.
+가독성 좋은 built-in heatmap을 다시 포함한 compact aggregate order-book 시뮬레이터입니다.
 
-`orderwave`는 sparse bid/ask book을 유지하면서 limit/market/cancel flow를 명시적인 분포에서 샘플링하고, 결과를 작은 summary history로 기록합니다. 공개 API는 의도적으로 좁습니다. `Market`을 만들고, `step` 또는 `run`으로 진행시키고, 최신 snapshot과 history만 읽으면 됩니다.
+`orderwave`는 runtime 모델을 작게 유지합니다. sparse bid/ask book, Poisson limit/market/cancel flow, bounded mean-reverting fair value, 그리고 sweep/recovery 구조를 만드는 가벼운 liquidity-state kernel만 둡니다. 예전의 큰 heuristic 트리는 복구하지 않습니다.
 
 ![Overview](docs/assets/orderwave-built-in-overview.png)
 
@@ -17,37 +17,31 @@ pip install orderwave
 ```python
 from orderwave import Market
 
-market = Market(seed=42)
+market = Market(seed=42, capture="visual")
 result = market.run(steps=1_000)
 
 snapshot = result.snapshot
 history = result.history
-```
-
-자주 쓰는 설정은 `config`에 넣습니다.
-
-```python
-from orderwave import Market, MarketConfig
-
-config = MarketConfig(
-    market_rate=3.0,
-    fair_price_vol=0.45,
-    max_spread_ticks=4,
-)
-
-market = Market(seed=7, config=config)
-market.gen(steps=500)
-snapshot = market.get()
+overview = market.plot()
+heatmap = market.plot_heatmap(anchor="price")
+book = market.plot_book()
 ```
 
 ## 공개 API
 
-- `Market(...)`: 초기 가격, tick size, visible depth, seed, 선택적 `MarketConfig`로 시뮬레이터 생성
+- `Market(...)`: 초기 가격, tick size, visible depth, seed, 선택적 `MarketConfig`, `capture="summary" | "visual"`로 시뮬레이터 생성
 - `step()`: 한 step 진행 후 최신 snapshot 반환
 - `gen(steps)`: 여러 step 진행 후 최신 snapshot 반환
 - `run(steps)`: `SimulationResult(snapshot=..., history=...)` 반환
 - `get()`: 현재 snapshot을 `dict`로 반환
 - `get_history()`: summary history를 `pandas.DataFrame`으로 반환
+- `plot()`: price path와 mid-anchor signed-depth heatmap 렌더. `capture="visual"` 필요
+- `plot_heatmap(anchor="mid" | "price")`: standalone heatmap 렌더. `capture="visual"` 필요
+- `plot_book()`: 현재 order book 렌더
+
+`capture="summary"`는 fast path를 최대한 가볍게 유지합니다. `capture="visual"`은 움직이는 시장 중심 주변의 fixed signed-depth window를 저장해서, heatmap에서 sweep, void, refill 구조가 보이게 합니다.
+
+## Snapshot과 History
 
 Snapshot field:
 
@@ -83,15 +77,11 @@ History column:
 
 ## 모델
 
-내부 모델은 하나만 남깁니다.
-
 - fair price는 bounded mean-reverting Gaussian process로 움직입니다.
 - limit, market, cancel 이벤트 개수는 Poisson 분포에서 샘플링합니다.
-- 이벤트 side는 fair-value gap과 현재 depth imbalance로 결정합니다.
-- 이벤트 level은 truncated decay 분포에서 샘플링합니다.
-- 이벤트 size는 bounded lognormal 분포에서 샘플링합니다.
-
-runtime 패키지에는 preset, participant taxonomy, latent regime, validation pipeline, plotting API가 더 이상 없습니다.
+- 이벤트 side는 fair-value gap, depth imbalance, 최근 signed flow로 결정합니다.
+- limit placement는 inside join/improve, best-level refill, deeper wall placement의 mixture로 배치합니다.
+- aggressive flow는 side-specific stress와 refill pressure를 올려 heatmap에 비대칭 withdrawal/recovery 구조가 보이게 합니다.
 
 ## 문서 이미지
 
@@ -105,6 +95,12 @@ runtime 패키지에는 preset, participant taxonomy, latent regime, validation 
 
 ```bash
 python -m scripts.render_doc_images
+```
+
+standalone heatmap 예제:
+
+```bash
+python -m examples.plot_market_heatmap --output artifacts/orderwave_heatmap.png
 ```
 
 추가 문서:
