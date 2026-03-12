@@ -1,35 +1,73 @@
-# orderwave Docs
+# orderwave Documentation
 
-[README](https://github.com/smturtle2/quoteflow/blob/main/README.md) | [한국어 문서](https://github.com/smturtle2/quoteflow/tree/main/docs/ko)
+`orderwave` is a compact event-based aggregate book simulator. It is meant for synthetic order-book paths, lightweight experiments, and deterministic smoke-scale research runs.
 
-`orderwave` is a compact Python library for simulating a session-aware, state-conditioned aggregate limit order book and visualizing the result from the same `Market` object.
-`Market` is the supported public API; internal engine and model modules are intentionally not documented as stable imports.
+## Runtime Surface
 
-It is an aggregate order-book market-state simulator.
-It is not an order-level matching or fill-precision simulator.
+- `Market`
+- `MarketConfig`
+- `SimulationResult`
 
-![Overview](../assets/orderwave-built-in-overview.png)
+Everything else is internal. The package no longer exposes plotting helpers, validation helpers, presets, or latent market-state labels.
 
-## Pages
+## MarketConfig
 
-- [Getting started](https://github.com/smturtle2/quoteflow/blob/main/docs/en/getting-started.md)
-- [API reference](https://github.com/smturtle2/quoteflow/blob/main/docs/en/api.md)
-- [Examples](https://github.com/smturtle2/quoteflow/blob/main/docs/en/examples.md)
-- [Releasing](https://github.com/smturtle2/quoteflow/blob/main/docs/en/releasing.md)
+`MarketConfig` exposes exactly these controls:
 
-## What Changed In The Current Engine
+- `limit_rate`
+- `market_rate`
+- `cancel_rate`
+- `fair_price_vol`
+- `mean_reversion`
+- `level_decay`
+- `size_mean`
+- `size_dispersion`
+- `min_order_qty`
+- `max_order_qty`
+- `max_spread_ticks`
+- `max_fair_move_ticks`
 
-- Internal microphases shape open release, midday lull, power hour, and closing imbalance behavior
-- The event cycle now emphasizes marketable flow first, then adverse quote revision, then passive refill
-- Debug history includes `microphase`, `flow_toxicity`, `maker_stress`, `quote_revision_wave`, and `refill_pressure`
-- Diagnostics add microphase and revision/refill panels on top of the original market-state checks
+Validation rules:
 
-## Built-in Visualization
+- rates must be greater than `0`
+- `mean_reversion` must be in `[0, 1]`
+- `level_decay` must be in `(0, 1)`
+- `size_dispersion` must be greater than `0`
+- `min_order_qty` must be at least `1`
+- `max_order_qty` must be greater than or equal to `min_order_qty`
+- `max_spread_ticks` must be at least `1`
+- `max_fair_move_ticks` must be at least `1`
 
-- `Market.plot()` for the main overview figure
-- `Market.plot_book()` for the current order book on a real price axis
-- `Market.plot_diagnostics()` for session, excitation, imbalance, resiliency, regime/shock, microphase, and revision/refill checks
+## Snapshot and History
 
-![Current book](../assets/orderwave-built-in-current-book.png)
+`get()` returns the latest snapshot as a plain dictionary. `get_history()` returns the same core fields over time:
 
-![Diagnostics](../assets/orderwave-built-in-diagnostics.png)
+- `step`
+- `last_price`
+- `mid_price`
+- `best_bid`
+- `best_ask`
+- `spread`
+- `bid_depth`
+- `ask_depth`
+- `depth_imbalance`
+- `buy_aggr_volume`
+- `sell_aggr_volume`
+- `fair_price`
+
+The snapshot also includes visible `bids` and `asks` for the current book view.
+
+## Documentation Images
+
+Regenerate all documentation assets with:
+
+```bash
+python -m scripts.render_doc_images
+```
+
+The script writes:
+
+- `docs/assets/orderwave-built-in-overview.png`
+- `docs/assets/orderwave-built-in-current-book.png`
+- `docs/assets/orderwave-built-in-diagnostics.png`
+- `docs/assets/orderwave-built-in-presets.png`

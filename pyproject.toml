@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "orderwave"
-version = "0.5.1"
-description = "An order-flow-driven synthetic market simulator."
+version = "0.6.0"
+description = "A compact aggregate order-book market simulator."
 readme = "README.md"
 requires-python = ">=3.11"
 keywords = ["order-book", "market-simulation", "microstructure", "synthetic-data", "finance"]
@@ -20,7 +20,6 @@ classifiers = [
   "Topic :: Scientific/Engineering :: Information Analysis",
 ]
 dependencies = [
-  "matplotlib>=3.8",
   "numpy>=1.26",
   "pandas>=2.2",
 ]
@@ -33,8 +32,8 @@ Issues = "https://github.com/smturtle2/quoteflow/issues"
 
 [project.optional-dependencies]
 dev = [
+  "matplotlib>=3.8",
   "mypy>=1.11",
-  "psutil>=6.0",
   "pytest>=8.0",
   "ruff>=0.6",
 ]
@@ -59,14 +58,11 @@ select = ["F", "I"]
 python_version = "3.11"
 files = [
   "orderwave/__init__.py",
+  "orderwave/book.py",
+  "orderwave/config.py",
+  "orderwave/history.py",
   "orderwave/market.py",
-  "orderwave/_engine.py",
-  "orderwave/_model/events.py",
-  "orderwave/_model/samplers.py",
-  "orderwave/_validation/metrics.py",
-  "orderwave/_validation/pipeline.py",
-  "orderwave/_validation/sensitivity.py",
-  "orderwave/model.py",
+  "orderwave/utils.py",
 ]
 follow_imports = "skip"
 ignore_missing_imports = true

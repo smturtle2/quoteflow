@@ -2,139 +2,28 @@ from __future__ import annotations
 
 """Public market simulator API."""
 
-import math
-from collections import deque
-from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Mapping, Sequence, cast
+from collections.abc import Mapping
+from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
 
-from orderwave._engine import _MarketEngine
-from orderwave._model.backstop import ensure_visible_depth
-from orderwave._model.latent import resolve_microphase, seasonality_multipliers
-from orderwave._model.scoring import score_limit_levels
-from orderwave._model.types import EXCITATION_KEYS, MetaOrderState, ShockState
-from orderwave.book import OrderBook
-from orderwave.config import (
-    LiquidityBackstopMode,
-    LoggingMode,
-    MarketConfig,
-    PresetName,
-    RegimeName,
-    coerce_config,
-    preset_params,
-)
+from orderwave.book import AggressorSide, BookSide, OrderBook
+from orderwave.config import MarketConfig, coerce_config
 from orderwave.history import HistoryBuffer
-from orderwave.metrics import MarketFeatures, compute_features
-from orderwave.utils import coerce_quantity, price_to_tick, tick_to_price
-from orderwave.visualization import plot_market_diagnostics, plot_market_overview, plot_order_book
-
-if TYPE_CHECKING:
-    from matplotlib.figure import Figure
-
-
-@dataclass(frozen=True)
-class BookLevel:
-    """Visible aggregate depth level returned by the public snapshot view."""
-
-    price: float
-    qty: float
-
-    def to_dict(self) -> dict[str, float]:
-        return {"price": float(self.price), "qty": float(self.qty)}
-
-
-@dataclass(frozen=True)
-class MarketSnapshot:
-    """Typed view of the current public market snapshot."""
-
-    step: int
-    day: int
-    session_step: int
-    session_phase: str
-    last_price: float
-    mid_price: float
-    microprice: float
-    best_bid: float
-    best_ask: float
-    spread: float
-    bids: tuple[BookLevel, ...]
-    asks: tuple[BookLevel, ...]
-    last_trade_side: str | None
-    last_trade_qty: float
-    buy_aggr_volume: float
-    sell_aggr_volume: float
-    trade_strength: float
-    depth_imbalance: float
-    regime: RegimeName
-    visible_levels_bid: int
-    visible_levels_ask: int
-    drought_age: float
-    recovery_pressure: float
-    impact_residue: float
-    regime_dwell: int
-    inventory_pressure: float
-
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "step": int(self.step),
-            "day": int(self.day),
-            "session_step": int(self.session_step),
-            "session_phase": self.session_phase,
-            "last_price": float(self.last_price),
-            "mid_price": float(self.mid_price),
-            "microprice": float(self.microprice),
-            "best_bid": float(self.best_bid),
-            "best_ask": float(self.best_ask),
-            "spread": float(self.spread),
-            "bids": [level.to_dict() for level in self.bids],
-            "asks": [level.to_dict() for level in self.asks],
-            "last_trade_side": self.last_trade_side,
-            "last_trade_qty": float(self.last_trade_qty),
-            "buy_aggr_volume": float(self.buy_aggr_volume),
-            "sell_aggr_volume": float(self.sell_aggr_volume),
-            "trade_strength": float(self.trade_strength),
-            "depth_imbalance": float(self.depth_imbalance),
-            "regime": self.regime,
-            "visible_levels_bid": int(self.visible_levels_bid),
-            "visible_levels_ask": int(self.visible_levels_ask),
-            "drought_age": float(self.drought_age),
-            "recovery_pressure": float(self.recovery_pressure),
-            "impact_residue": float(self.impact_residue),
-            "regime_dwell": int(self.regime_dwell),
-            "inventory_pressure": float(self.inventory_pressure),
-        }
+from orderwave.utils import bounded_int, clamp, compute_depth_imbalance, price_to_tick, tick_to_price
 
 
 @dataclass(frozen=True)
 class SimulationResult:
     """Collected outputs returned by ``Market.run``."""
 
-    snapshot: MarketSnapshot
+    snapshot: dict[str, object]
     history: pd.DataFrame
-    event_history: pd.DataFrame | None
-    debug_history: pd.DataFrame | None
-    labeled_event_history: pd.DataFrame | None
 
 
 class Market:
-    """Order-flow-driven synthetic market simulator.
-
-    `Market` exposes a deliberately small public API while the internal engine
-    models a sparse aggregate limit order book, conditional participant flow,
-    cancellations, latent meta-orders, exogenous shocks, self-excitation, and
-    multi-timescale hidden fair-value dynamics.
-
-    Examples
-    --------
-    >>> from orderwave import Market
-    >>> market = Market(seed=42)
-    >>> _ = market.gen(steps=1_000)
-    >>> snapshot = market.get()
-    >>> history = market.get_history()
-    >>> events = market.get_event_history()
-    """
+    """Compact aggregate order-book simulator driven by explicit distributions."""
 
     def __init__(
         self,
@@ -143,13 +32,7 @@ class Market:
         levels: int = 5,
         seed: int | None = None,
         config: MarketConfig | Mapping[str, object] | None = None,
-        *,
-        preset: PresetName | None = None,
-        logging_mode: LoggingMode | None = None,
-        liquidity_backstop: LiquidityBackstopMode | None = None,
     ) -> None:
-        """Create a new simulator instance."""
-
         if tick_size <= 0.0:
             raise ValueError("tick_size must be positive")
         if levels <= 0:
@@ -158,439 +41,314 @@ class Market:
         self.tick_size = float(tick_size)
         self.levels = int(levels)
         self.seed = seed
+        self.config = coerce_config(config)
         self._rng = np.random.default_rng(seed)
-        self.config = _resolve_market_config(
-            config,
-            self.levels,
-            preset=preset,
-            logging_mode=logging_mode,
-            liquidity_backstop=liquidity_backstop,
-        )
-        self._params = preset_params(self.config.preset)
-        self._fallback_liquidity_qty = coerce_quantity(math.exp(self._params.limit_qty_log_mean))
-        self._minimum_visible_levels = min(self.levels, 3)
 
         self._book = OrderBook(self.tick_size)
-        self._history = HistoryBuffer(
-            logging_mode=self.config.logging_mode,
-            visual_depth=self.config.book_buffer_levels,
-        )
-        self._visual_history = self._history.visual_store
+        self._history = HistoryBuffer()
         self._step = 0
+        self._book_capacity = self.levels + self.config.max_spread_ticks
+        self._weight_cache: dict[int, np.ndarray] = {}
 
-        init_tick = price_to_tick(init_price, self.tick_size)
-        self._init_price = tick_to_price(init_tick, self.tick_size)
-        self._regime: RegimeName = "calm"
+        self._init_tick = price_to_tick(init_price, self.tick_size)
+        self._last_trade_tick = self._init_tick
+        self._fair_tick = float(self._init_tick)
+        self._buy_aggr_volume = 0.0
+        self._sell_aggr_volume = 0.0
 
-        self._day = 0
-        self._session_step = 0
-        self._session_phase = "open"
-        self._session_progress = 0.0
-        self._microphase = resolve_microphase(self._session_progress)
-        self._seasonality = seasonality_multipliers(
-            self._session_phase,
-            session_progress=self._session_progress,
-            scale=self.config.seasonality_scale,
-        )
-
-        self._hidden_fair_base_tick = float(init_tick) + (self._params.initial_spread_ticks / 2.0)
-        self._hidden_fair_slow = 0.0
-        self._hidden_fair_fast = 0.0
-        self._hidden_fair_jump = 0.0
-        self._hidden_fair_tick = self._hidden_fair_base_tick
-        self._hidden_vol = 0.3
-
-        self._excitation = {key: 0.0 for key in EXCITATION_KEYS}
-        self._burst_state = "calm"
-        self._shock_state: ShockState | None = None
-        self._meta_orders: dict[str, MetaOrderState | None] = {"buy": None, "sell": None}
-        self._next_meta_order_id = 1
-
-        self._spread_excess = 0.0
-        self._best_depth_deficit_bid = 0.0
-        self._best_depth_deficit_ask = 0.0
-        self._imbalance_displacement = 0.0
-        self._directional_anchor = 0.0
-        self._drought_age = 0.0
-        self._recovery_pressure = 0.0
-        self._one_sided_pressure = 0.0
-        self._impact_residue = 0.0
-        self._regime_dwell = 0
-        self._inventory_pressure = 0.0
-        self._passive_withdrawal_bias = 0.0
-        self._noise_fatigue = 0.0
-        self._flow_toxicity = 0.0
-        self._maker_stress = 0.0
-        self._quote_revision_pressure = 0.0
-        self._refill_pressure = 0.0
-        self._quote_revision_wave = False
-
-        self._last_trade_price = self._init_price
-        self._last_trade_side: str | None = None
-        self._last_trade_qty = 0.0
-
-        self._buy_flow: deque[float] = deque(maxlen=self.config.flow_window)
-        self._sell_flow: deque[float] = deque(maxlen=self.config.flow_window)
-        self._mid_returns: deque[float] = deque(maxlen=self.config.vol_window)
-        self._buy_exec_ema = 0.0
-        self._sell_exec_ema = 0.0
-        self._trade_ema_alpha = 2.0 / (self.config.flow_window + 1.0)
-        self.__engine = _MarketEngine(self)
-
-        self._seed_initial_book(init_tick)
-        self._record_current_state(features=self._compute_features())
-
-    def _step_impl(self) -> None:
-        self.__engine.run_step()
-
-    def step(self) -> dict[str, object]:
-        """Advance the simulator by one micro-batch."""
-
-        self._step_impl()
-        return self.get()
-
-    def gen(self, steps: int) -> dict[str, object]:
-        """Advance the simulator by ``steps`` micro-batches."""
-
-        if steps < 0:
-            raise ValueError("steps must be non-negative")
-        for _ in range(int(steps)):
-            self._step_impl()
-        return self.get()
+        self._seed_book(self._init_tick)
+        self._record_history()
 
     def get(self) -> dict[str, object]:
-        """Return the current market snapshot."""
+        """Return the current public market snapshot."""
 
-        return self.get_snapshot().to_dict()
+        best_bid_tick = self._book.best_bid_tick
+        best_ask_tick = self._book.best_ask_tick
+        if best_bid_tick is None or best_ask_tick is None:
+            raise RuntimeError("order book must remain two-sided")
 
-    def get_snapshot(self) -> MarketSnapshot:
-        """Return the current market snapshot as a typed view."""
+        bid_depth = self._book.total_depth("bid", self.levels)
+        ask_depth = self._book.total_depth("ask", self.levels)
+        spread_ticks = best_ask_tick - best_bid_tick
 
-        return _snapshot_from_mapping(self._history.current())
+        return {
+            "step": self._step,
+            "last_price": tick_to_price(self._last_trade_tick, self.tick_size),
+            "mid_price": tick_to_price((best_bid_tick + best_ask_tick) / 2.0, self.tick_size),
+            "best_bid": tick_to_price(best_bid_tick, self.tick_size),
+            "best_ask": tick_to_price(best_ask_tick, self.tick_size),
+            "spread": tick_to_price(spread_ticks, self.tick_size),
+            "bids": self._public_levels("bid"),
+            "asks": self._public_levels("ask"),
+            "bid_depth": bid_depth,
+            "ask_depth": ask_depth,
+            "depth_imbalance": compute_depth_imbalance(bid_depth, ask_depth),
+            "buy_aggr_volume": float(self._buy_aggr_volume),
+            "sell_aggr_volume": float(self._sell_aggr_volume),
+            "fair_price": tick_to_price(self._fair_tick, self.tick_size),
+        }
 
     def get_history(self) -> pd.DataFrame:
-        """Return the compact history recorded so far."""
+        """Return the summary history as a ``pandas.DataFrame``."""
 
         return self._history.dataframe()
 
-    def get_event_history(self) -> pd.DataFrame:
-        """Return the applied event log recorded so far."""
+    def step(self) -> dict[str, object]:
+        """Advance the simulator by one step and return the new snapshot."""
 
-        self._require_full_logging("event/debug logging is disabled; use logging_mode='full'")
-        return self._history.event_dataframe()
+        self._step += 1
+        self._buy_aggr_volume = 0.0
+        self._sell_aggr_volume = 0.0
 
-    def get_debug_history(self) -> pd.DataFrame:
-        """Return the event-aligned latent debug history."""
+        self._advance_fair_price()
+        event_types = self._sample_event_types()
+        self._rng.shuffle(event_types)
+        for event_type in event_types:
+            if event_type == "limit":
+                self._apply_limit_event()
+            elif event_type == "market":
+                self._apply_market_event()
+            else:
+                self._apply_cancel_event()
 
-        self._require_full_logging("event/debug logging is disabled; use logging_mode='full'")
-        return self._history.debug_dataframe()
+        self._repair_book()
+        self._record_history()
+        return self.get()
 
-    def get_labeled_event_history(self) -> pd.DataFrame:
-        """Return event history enriched with aligned latent debug labels."""
+    def gen(self, steps: int) -> dict[str, object]:
+        """Run ``steps`` iterations and return the final snapshot."""
 
-        self._require_full_logging("event/debug logging is disabled; use logging_mode='full'")
-        return _merge_event_and_debug_history(self.get_event_history(), self.get_debug_history())
+        for _ in range(self._coerce_steps(steps)):
+            self.step()
+        return self.get()
 
     def run(self, steps: int) -> SimulationResult:
-        """Advance the simulator and return a bundled result view."""
+        """Run ``steps`` iterations and return both snapshot and history."""
 
-        self.gen(steps)
-        return self._build_result()
+        snapshot = self.gen(steps)
+        return SimulationResult(snapshot=snapshot, history=self.get_history())
 
-    def plot(
-        self,
-        *,
-        levels: int | None = None,
-        title: str | None = None,
-        figsize: tuple[float, float] | None = None,
-    ) -> Figure:
-        """Render the built-in market overview figure."""
+    def _seed_book(self, center_tick: int) -> None:
+        for offset in range(self._book_capacity):
+            self._book.add_limit("bid", center_tick - 1 - offset, self._sample_quantity())
+            self._book.add_limit("ask", center_tick + 1 + offset, self._sample_quantity())
 
-        return plot_market_overview(
-            self.get_history(),
-            self._visual_history,
-            levels=self._resolve_plot_levels(levels),
-            title=title,
-            figsize=figsize,
+    def _record_history(self) -> None:
+        self._history.append(self.get())
+
+    def _coerce_steps(self, steps: int) -> int:
+        if steps < 0:
+            raise ValueError("steps must be non-negative")
+        return int(steps)
+
+    def _advance_fair_price(self) -> None:
+        reference_tick = self._reference_tick()
+        reversion = self.config.mean_reversion * (reference_tick - self._fair_tick)
+        shock = float(self._rng.normal(0.0, self.config.fair_price_vol))
+        move = clamp(
+            reversion + shock,
+            -float(self.config.max_fair_move_ticks),
+            float(self.config.max_fair_move_ticks),
         )
+        self._fair_tick += move
 
-    def plot_book(
-        self,
-        *,
-        levels: int | None = None,
-        title: str | None = None,
-        figsize: tuple[float, float] | None = None,
-    ) -> Figure:
-        """Render the current order-book snapshot on a real price axis."""
+    def _sample_event_types(self) -> list[str]:
+        event_types = ["limit"] * int(self._rng.poisson(self.config.limit_rate))
+        event_types.extend(["market"] * int(self._rng.poisson(self.config.market_rate)))
+        event_types.extend(["cancel"] * int(self._rng.poisson(self.config.cancel_rate)))
+        return event_types
 
-        features = self._compute_features()
-        return plot_order_book(
-            self._book,
-            tick_size=self.tick_size,
-            levels=self._resolve_plot_levels(levels),
-            microprice=features.microprice,
-            title=title,
-            figsize=figsize,
+    def _sample_quantity(self) -> int:
+        raw_value = float(self._rng.lognormal(self.config.size_mean, self.config.size_dispersion))
+        return bounded_int(raw_value, self.config.min_order_qty, self.config.max_order_qty)
+
+    def _sample_probability_for_bid(self) -> float:
+        mid_tick = self._reference_tick()
+        fair_signal = clamp(
+            (self._fair_tick - mid_tick) / float(self.config.max_fair_move_ticks),
+            -1.0,
+            1.0,
         )
+        imbalance = self._current_imbalance()
+        pressure = clamp((fair_signal - imbalance) / 2.0, -1.0, 1.0)
+        return 0.5 * (1.0 + pressure)
 
-    def plot_diagnostics(
-        self,
-        *,
-        imbalance_bins: int = 8,
-        max_lag: int = 12,
-        title: str | None = None,
-        figsize: tuple[float, float] | None = None,
-    ) -> Figure:
-        """Render realism-oriented diagnostics for the simulated path."""
-
-        self._require_full_logging("event/debug logging is disabled; use logging_mode='full'")
-        return plot_market_diagnostics(
-            self.get_history(),
-            self.get_event_history(),
-            self.get_debug_history(),
-            imbalance_bins=imbalance_bins,
-            max_lag=max_lag,
-            title=title,
-            figsize=figsize,
+    def _apply_limit_event(self) -> None:
+        bid_probability = self._sample_probability_for_bid()
+        fair_signal = clamp(
+            (self._fair_tick - self._reference_tick()) / float(self.config.max_fair_move_ticks),
+            -1.0,
+            1.0,
         )
+        side: BookSide = "bid" if self._rng.random() < bid_probability else "ask"
+        offset = self._sample_level_index(self._book_capacity)
+        tick = self._resolve_limit_tick(side, offset, fair_signal)
+        self._book.add_limit(side, tick, self._sample_quantity())
 
-    def _seed_initial_book(self, init_tick: int) -> None:
-        best_bid_tick = max(0, init_tick)
-        best_ask_tick = best_bid_tick + self._params.initial_spread_ticks
+    def _apply_market_event(self) -> None:
+        bid_probability = self._sample_probability_for_bid()
+        aggressor: AggressorSide = "buy" if self._rng.random() < bid_probability else "sell"
+        result = self._book.execute_market(aggressor, self._sample_quantity())
+        if result.filled_qty <= 0:
+            return
+        if result.last_fill_tick is not None:
+            self._last_trade_tick = result.last_fill_tick
+        if aggressor == "buy":
+            self._buy_aggr_volume += float(result.filled_qty)
+        else:
+            self._sell_aggr_volume += float(result.filled_qty)
 
-        best_qty_bid = coerce_quantity(
-            self._rng.lognormal(self._params.limit_qty_log_mean + 0.35, self._params.limit_qty_log_sigma)
-        )
-        best_qty_ask = coerce_quantity(
-            self._rng.lognormal(self._params.limit_qty_log_mean + 0.35, self._params.limit_qty_log_sigma)
-        )
-        self._book.add_limit("bid", best_bid_tick, best_qty_bid)
-        self._book.add_limit("ask", best_ask_tick, best_qty_ask)
+    def _apply_cancel_event(self) -> None:
+        bid_probability = self._sample_probability_for_bid()
+        side: BookSide = "ask" if self._rng.random() < bid_probability else "bid"
+        tick = self._sample_existing_tick(side)
+        if tick is None:
+            fallback_side: BookSide = "bid" if side == "ask" else "ask"
+            tick = self._sample_existing_tick(fallback_side)
+            side = fallback_side
+        if tick is None:
+            return
+        qty = min(self._sample_quantity(), self._book.level_qty(side, tick))
+        self._book.cancel_level(side, tick, qty)
 
-        bootstrap_features = self._compute_features()
-        seed_order_count = max(self.config.book_buffer_levels, self.levels + 4)
+    def _sample_existing_tick(self, side: BookSide) -> int | None:
+        levels = self._book.levels(side)
+        if not levels:
+            return None
+        index = self._sample_level_index(len(levels))
+        return levels[index][0]
+
+    def _sample_level_index(self, size: int) -> int:
+        weights = self._weights(size)
+        return int(self._rng.choice(size, p=weights))
+
+    def _weights(self, size: int) -> np.ndarray:
+        if size < 1:
+            raise ValueError("weight size must be positive")
+        cached = self._weight_cache.get(size)
+        if cached is not None:
+            return cached
+        weights = np.power(self.config.level_decay, np.arange(size, dtype=float))
+        normalized = weights / weights.sum()
+        self._weight_cache[size] = normalized
+        return normalized
+
+    def _resolve_limit_tick(self, side: BookSide, offset: int, fair_signal: float) -> int:
+        best_bid = self._book.best_bid_tick
+        best_ask = self._book.best_ask_tick
+        spread_ticks = self._book.spread_ticks or 0
+
+        if best_bid is not None and best_ask is not None:
+            favored = (side == "bid" and fair_signal > 0.0) or (side == "ask" and fair_signal < 0.0)
+            if spread_ticks > 1 and favored and self._rng.random() < abs(fair_signal):
+                return best_bid + 1 if side == "bid" else best_ask - 1
+            if side == "bid":
+                return max(0, min(best_bid - offset, best_ask - 1))
+            return max(best_ask + offset, best_bid + 1)
+
+        reference_tick = int(round(self._reference_tick()))
+        if side == "bid":
+            if best_ask is not None:
+                return max(0, min(reference_tick - 1 - offset, best_ask - 1))
+            return max(0, reference_tick - 1 - offset)
+        if best_bid is not None:
+            return max(reference_tick + 1 + offset, best_bid + 1)
+        return reference_tick + 1 + offset
+
+    def _repair_book(self) -> None:
+        self._ensure_two_sided()
+        self._book.clear_crossed_quotes()
+        self._ensure_two_sided()
+        self._compress_spread()
+        self._ensure_visible_levels()
+        self._book.trim("bid", self._book_capacity)
+        self._book.trim("ask", self._book_capacity)
+        self._ensure_two_sided()
+
+    def _ensure_two_sided(self) -> None:
+        reference_tick = int(round(self._reference_tick()))
+        best_bid = self._book.best_bid_tick
+        best_ask = self._book.best_ask_tick
+
+        if best_bid is None:
+            target_bid = reference_tick - 1
+            if best_ask is not None:
+                target_bid = min(target_bid, best_ask - 1)
+            self._book.add_limit("bid", target_bid, self._sample_quantity())
+
+        best_bid = self._book.best_bid_tick
+        if best_ask is None:
+            target_ask = reference_tick + 1
+            if best_bid is not None:
+                target_ask = max(target_ask, best_bid + 1)
+            self._book.add_limit("ask", target_ask, self._sample_quantity())
+
+    def _compress_spread(self) -> None:
+        while True:
+            spread_ticks = self._book.spread_ticks
+            if spread_ticks is None or spread_ticks <= self.config.max_spread_ticks:
+                return
+            reference_tick = self._reference_tick()
+            if self._fair_tick >= reference_tick:
+                best_bid = self._book.best_bid_tick
+                best_ask = self._book.best_ask_tick
+                if best_bid is None or best_ask is None:
+                    return
+                self._book.add_limit("bid", min(best_bid + 1, best_ask - 1), self._sample_quantity())
+            else:
+                best_bid = self._book.best_bid_tick
+                best_ask = self._book.best_ask_tick
+                if best_bid is None or best_ask is None:
+                    return
+                self._book.add_limit("ask", max(best_ask - 1, best_bid + 1), self._sample_quantity())
+
+    def _ensure_visible_levels(self) -> None:
         for side in ("bid", "ask"):
-            levels, probabilities = score_limit_levels(
-                side,
-                "passive_lp",
-                book=self._book,
-                features=bootstrap_features,
-                hidden_fair_tick=self._hidden_fair_tick,
-                regime=self._regime,
-                context=None,
-                config=self.config,
-                params=self._params,
-                allow_inside=False,
-            )
-            valid_levels = levels[levels >= 0]
-            valid_probabilities = probabilities[levels >= 0]
-            valid_probabilities = valid_probabilities / valid_probabilities.sum()
-            allocation = self._rng.multinomial(seed_order_count, valid_probabilities)
-            for level, order_count in zip(valid_levels, allocation):
-                if order_count <= 0:
-                    continue
-                qty = coerce_quantity(
-                    self._rng.lognormal(self._params.limit_qty_log_mean, self._params.limit_qty_log_sigma)
-                    * order_count
-                )
-                self._book.apply_limit_relative(side, int(level), qty)
+            attempts = 0
+            while self._book.level_count(side) < self.levels and attempts < self._book_capacity:
+                next_tick = self._next_repair_tick(side)
+                before = self._book.level_count(side)
+                self._book.add_limit(side, next_tick, self._sample_quantity())
+                after = self._book.level_count(side)
+                if after == before:
+                    break
+                attempts += 1
 
-        ensure_visible_depth(
-            book=self._book,
-            minimum_visible_levels=self._minimum_visible_levels,
-            fallback_qty=self._fallback_liquidity_qty,
-        )
+    def _next_repair_tick(self, side: BookSide) -> int:
+        reference_tick = int(round(self._reference_tick()))
+        if side == "bid":
+            deepest_bid = self._book.deepest_tick("bid")
+            if deepest_bid is not None:
+                return max(0, deepest_bid - 1)
+            best_ask = self._book.best_ask_tick
+            if best_ask is not None:
+                return max(0, min(reference_tick - 1, best_ask - 1))
+            return max(0, reference_tick - 1)
 
-    def _compute_features(self) -> MarketFeatures:
-        return compute_features(
-            self._book,
-            tick_size=self.tick_size,
-            depth_levels=self.levels,
-            buy_flow=self._buy_flow,
-            sell_flow=self._sell_flow,
-            mid_returns=self._mid_returns,
-            buy_exec_ema=self._buy_exec_ema,
-            sell_exec_ema=self._sell_exec_ema,
-        )
+        deepest_ask = self._book.deepest_tick("ask")
+        if deepest_ask is not None:
+            return deepest_ask + 1
+        best_bid = self._book.best_bid_tick
+        if best_bid is not None:
+            return max(reference_tick + 1, best_bid + 1)
+        return reference_tick + 1
 
-    def _record_current_state(self, *, features: MarketFeatures | None = None) -> None:
-        features = self._compute_features() if features is None else features
-        full_bid_levels = self._book.top_levels("bid", self.config.book_buffer_levels)
-        full_ask_levels = self._book.top_levels("ask", self.config.book_buffer_levels)
-        snapshot = self._build_snapshot(
-            features,
-            bid_levels=full_bid_levels[: self.levels],
-            ask_levels=full_ask_levels[: self.levels],
-        )
-        self._history.record(
-            snapshot,
-            top_n_bid_qty=features.top_bid_depth,
-            top_n_ask_qty=features.top_ask_depth,
-            realized_vol=features.realized_vol,
-            signed_flow=features.signed_flow,
-        )
-        self._history.record_visual(
-            step=self._step,
-            bid_levels=full_bid_levels,
-            ask_levels=full_ask_levels,
-        )
+    def _public_levels(self, side: BookSide) -> list[dict[str, float]]:
+        return [
+            {"price": tick_to_price(tick, self.tick_size), "qty": float(qty)}
+            for tick, qty in self._book.levels(side, self.levels)
+        ]
 
-    def _resolve_plot_levels(self, levels: int | None) -> int:
-        resolved = self.levels if levels is None else int(levels)
-        if resolved <= 0:
-            raise ValueError("levels must be positive")
-        return min(resolved, self.config.book_buffer_levels)
+    def _reference_tick(self) -> float:
+        mid_tick = self._book.mid_tick()
+        if mid_tick is not None:
+            return mid_tick
+        return float(self._last_trade_tick)
 
-    def _require_full_logging(self, message: str) -> None:
-        if self.config.logging_mode != "full":
-            raise RuntimeError(message)
-
-    def _build_snapshot(
-        self,
-        features: MarketFeatures,
-        *,
-        bid_levels: list[tuple[int, int]],
-        ask_levels: list[tuple[int, int]],
-    ) -> dict[str, object]:
-        return {
-            "step": self._step,
-            "day": self._day,
-            "session_step": self._session_step,
-            "session_phase": self._session_phase,
-            "last_price": self._last_trade_price,
-            "mid_price": features.mid_price,
-            "microprice": features.microprice,
-            "best_bid": tick_to_price(self._book.best_bid_tick, self.tick_size),
-            "best_ask": tick_to_price(self._book.best_ask_tick, self.tick_size),
-            "spread": features.spread_price,
-            "bids": [
-                {"price": tick_to_price(tick, self.tick_size), "qty": float(qty)}
-                for tick, qty in bid_levels
-            ],
-            "asks": [
-                {"price": tick_to_price(tick, self.tick_size), "qty": float(qty)}
-                for tick, qty in ask_levels
-            ],
-            "last_trade_side": self._last_trade_side,
-            "last_trade_qty": float(self._last_trade_qty),
-            "buy_aggr_volume": features.buy_aggr_volume,
-            "sell_aggr_volume": features.sell_aggr_volume,
-            "trade_strength": features.trade_strength,
-            "depth_imbalance": features.depth_imbalance,
-            "regime": self._regime,
-            "visible_levels_bid": len(bid_levels),
-            "visible_levels_ask": len(ask_levels),
-            "drought_age": float(self._drought_age),
-            "recovery_pressure": float(self._recovery_pressure),
-            "impact_residue": float(self._impact_residue),
-            "regime_dwell": int(self._regime_dwell),
-            "inventory_pressure": float(self._inventory_pressure),
-        }
-
-    def _build_result(self) -> SimulationResult:
-        snapshot = self.get_snapshot()
-        history = self.get_history()
-        if self.config.logging_mode != "full":
-            return SimulationResult(
-                snapshot=snapshot,
-                history=history,
-                event_history=None,
-                debug_history=None,
-                labeled_event_history=None,
-            )
-
-        event_history = self.get_event_history()
-        debug_history = self.get_debug_history()
-        return SimulationResult(
-            snapshot=snapshot,
-            history=history,
-            event_history=event_history,
-            debug_history=debug_history,
-            labeled_event_history=_merge_event_and_debug_history(event_history, debug_history),
-        )
+    def _current_imbalance(self) -> float:
+        bid_depth = self._book.total_depth("bid", self.levels)
+        ask_depth = self._book.total_depth("ask", self.levels)
+        return compute_depth_imbalance(bid_depth, ask_depth)
 
 
-def _resolve_market_config(
-    config: MarketConfig | Mapping[str, object] | None,
-    levels: int,
-    *,
-    preset: PresetName | None,
-    logging_mode: LoggingMode | None,
-    liquidity_backstop: LiquidityBackstopMode | None,
-) -> MarketConfig:
-    overrides = {
-        key: value
-        for key, value in (
-            ("preset", preset),
-            ("logging_mode", logging_mode),
-            ("liquidity_backstop", liquidity_backstop),
-        )
-        if value is not None
-    }
-    if not overrides:
-        return coerce_config(config, levels)
-
-    if config is None:
-        return coerce_config(overrides, levels)
-    if isinstance(config, MarketConfig):
-        return coerce_config(replace(config, **overrides), levels)
-    if isinstance(config, Mapping):
-        merged = dict(config)
-        merged.update(overrides)
-        return coerce_config(merged, levels)
-    return coerce_config(config, levels)
-
-
-def _snapshot_from_mapping(snapshot: Mapping[str, object]) -> MarketSnapshot:
-    bid_levels = cast(Sequence[object], snapshot["bids"])
-    ask_levels = cast(Sequence[object], snapshot["asks"])
-    return MarketSnapshot(
-        step=cast(int, snapshot["step"]),
-        day=cast(int, snapshot["day"]),
-        session_step=cast(int, snapshot["session_step"]),
-        session_phase=str(snapshot["session_phase"]),
-        last_price=cast(float, snapshot["last_price"]),
-        mid_price=cast(float, snapshot["mid_price"]),
-        microprice=cast(float, snapshot["microprice"]),
-        best_bid=cast(float, snapshot["best_bid"]),
-        best_ask=cast(float, snapshot["best_ask"]),
-        spread=cast(float, snapshot["spread"]),
-        bids=tuple(_book_level_from_mapping(level) for level in bid_levels),
-        asks=tuple(_book_level_from_mapping(level) for level in ask_levels),
-        last_trade_side=None if snapshot["last_trade_side"] is None else str(snapshot["last_trade_side"]),
-        last_trade_qty=cast(float, snapshot["last_trade_qty"]),
-        buy_aggr_volume=cast(float, snapshot["buy_aggr_volume"]),
-        sell_aggr_volume=cast(float, snapshot["sell_aggr_volume"]),
-        trade_strength=cast(float, snapshot["trade_strength"]),
-        depth_imbalance=cast(float, snapshot["depth_imbalance"]),
-        regime=cast(RegimeName, snapshot["regime"]),
-        visible_levels_bid=cast(int, snapshot["visible_levels_bid"]),
-        visible_levels_ask=cast(int, snapshot["visible_levels_ask"]),
-        drought_age=cast(float, snapshot["drought_age"]),
-        recovery_pressure=cast(float, snapshot["recovery_pressure"]),
-        impact_residue=cast(float, snapshot["impact_residue"]),
-        regime_dwell=cast(int, snapshot["regime_dwell"]),
-        inventory_pressure=cast(float, snapshot["inventory_pressure"]),
-    )
-
-
-def _book_level_from_mapping(level: object) -> BookLevel:
-    if not isinstance(level, Mapping):
-        raise TypeError("snapshot book levels must be mappings")
-    return BookLevel(price=float(level["price"]), qty=float(level["qty"]))
-
-
-def _merge_event_and_debug_history(event_history: pd.DataFrame, debug_history: pd.DataFrame) -> pd.DataFrame:
-    debug_without_duplicate_context = debug_history.drop(
-        columns=["day", "session_step", "session_phase"],
-        errors="ignore",
-    )
-    return event_history.merge(
-        debug_without_duplicate_context,
-        on=["step", "event_idx"],
-        how="inner",
-        validate="one_to_one",
-    )
-
-
-__all__ = ["BookLevel", "Market", "MarketSnapshot", "SimulationResult"]
+__all__ = ["Market", "SimulationResult"]

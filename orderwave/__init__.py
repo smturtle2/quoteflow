@@ -1,12 +1,6 @@
-"""Public package interface for `orderwave`.
+"""Public package interface for ``orderwave``."""
 
-The library intentionally keeps the external surface minimal:
+from orderwave.config import MarketConfig
+from orderwave.market import Market, SimulationResult
 
-```python
-from orderwave import Market
-```
-"""
-
-from orderwave.market import Market
-
-__all__ = ["Market"]
+__all__ = ["Market", "MarketConfig", "SimulationResult"]

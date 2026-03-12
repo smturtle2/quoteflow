@@ -1,10 +1,6 @@
-# orderwave Docs
+# Documentation
 
-[README](https://github.com/smturtle2/quoteflow/blob/main/README.md)
-
-Choose a language:
-
-- [English docs](https://github.com/smturtle2/quoteflow/blob/main/docs/en/README.md)
-- [한국어 문서](https://github.com/smturtle2/quoteflow/blob/main/docs/ko/README.md)
-
-Shared generated assets live in [`docs/assets`](https://github.com/smturtle2/quoteflow/tree/main/docs/assets).
+- English guide: [docs/en/README.md](en/README.md)
+- Korean guide: [docs/ko/README.md](ko/README.md)
+- English release flow: [docs/en/releasing.md](en/releasing.md)
+- Korean release flow: [docs/ko/releasing.md](ko/releasing.md)
