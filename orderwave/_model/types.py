@@ -6,6 +6,13 @@ from typing import Literal, Mapping
 ModelSide = Literal["bid", "ask"]
 AggressorSide = Literal["buy", "sell"]
 SessionPhase = Literal["open", "mid", "close"]
+MicroPhase = Literal[
+    "open_release",
+    "morning_trend",
+    "midday_lull",
+    "power_hour",
+    "closing_imbalance",
+]
 ParticipantType = Literal["passive_lp", "inventory_mm", "noise_taker", "informed_meta"]
 ShockName = Literal["fair_jump", "vol_burst", "liquidity_drought", "one_sided_taker_surge"]
 
@@ -32,6 +39,7 @@ class ShockState:
 @dataclass(frozen=True)
 class EngineContext:
     session_phase: SessionPhase
+    microphase: MicroPhase
     session_progress: float
     seasonality: Mapping[str, float]
     hidden_vol: float
@@ -52,6 +60,10 @@ class EngineContext:
     inventory_pressure: float
     passive_withdrawal: float
     noise_fatigue: float
+    flow_toxicity: float
+    maker_stress: float
+    quote_revision_pressure: float
+    refill_pressure: float
 
 
 PARTICIPANT_TYPES: tuple[ParticipantType, ...] = (

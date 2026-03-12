@@ -10,7 +10,7 @@ from orderwave.config import REGIME_NAMES, MarketConfig, PresetParams, RegimeNam
 from orderwave.metrics import MarketFeatures
 from orderwave.utils import clamp
 
-from .types import SHOCK_NAMES, AggressorSide, EngineContext, MetaOrderState, SessionPhase, ShockState
+from .types import SHOCK_NAMES, AggressorSide, EngineContext, MetaOrderState, MicroPhase, SessionPhase, ShockState
 
 
 def resolve_session_phase(session_step: int, steps_per_day: int) -> tuple[SessionPhase, float]:
@@ -23,6 +23,19 @@ def resolve_session_phase(session_step: int, steps_per_day: int) -> tuple[Sessio
     if progress < 0.8:
         return "mid", progress
     return "close", progress
+
+
+def resolve_microphase(session_progress: float) -> MicroPhase:
+    progress = clamp(session_progress, 0.0, 1.0)
+    if progress < 0.08:
+        return "open_release"
+    if progress < 0.32:
+        return "morning_trend"
+    if progress < 0.68:
+        return "midday_lull"
+    if progress < 0.9:
+        return "power_hour"
+    return "closing_imbalance"
 
 
 def seasonality_multipliers(
@@ -71,21 +84,62 @@ def seasonality_multipliers(
 def sample_next_regime(
     current_regime: RegimeName,
     *,
+    regime_dwell: int,
+    features: MarketFeatures,
+    context: EngineContext,
     rng: np.random.Generator,
     config: MarketConfig,
     params: PresetParams,
 ) -> RegimeName:
+    minimum_dwell = {"calm": 2, "directional": 4, "stressed": 3}[current_regime]
+    if regime_dwell < minimum_dwell:
+        return current_regime
+
     base_row = params.transition_matrix[current_regime]
     scaled_row = {}
     off_diagonal_total = 0.0
+    stress_signal = clamp(
+        (0.32 * context.maker_stress)
+        + (0.22 * context.flow_toxicity)
+        + (0.15 * context.recovery_pressure)
+        + (0.12 * context.impact_residue)
+        + (0.1 * max(features.realized_vol, 0.0))
+        + (0.16 * context.shock.intensity if context.shock is not None else 0.0),
+        0.0,
+        5.0,
+    )
+    directional_signal = clamp(
+        (0.38 * abs(context.directional_anchor))
+        + (0.24 * abs(features.recent_flow_imbalance))
+        + (0.18 * abs(features.trade_strength))
+        + (0.14 * abs(_meta_signal(context.meta_orders)))
+        + (0.08 * abs(context.excitation["market_buy"] - context.excitation["market_sell"])),
+        0.0,
+        4.0,
+    )
     for regime in REGIME_NAMES:
         if regime == current_regime:
             continue
         scaled_prob = base_row[regime] * config.regime_transition_scale
+        if regime == "stressed":
+            scaled_prob *= 1.0 + (0.28 * stress_signal) + (0.08 * directional_signal)
+        elif regime == "directional":
+            scaled_prob *= 1.0 + (0.24 * directional_signal) + (0.05 * stress_signal)
+        else:
+            scaled_prob *= max(0.4, 1.0 - (0.12 * stress_signal) - (0.08 * directional_signal))
         scaled_row[regime] = max(0.0, scaled_prob)
         off_diagonal_total += scaled_row[regime]
 
     stay_prob = max(0.05, 1.0 - off_diagonal_total)
+    dwell_overhang = max(regime_dwell - minimum_dwell, 0)
+    stay_prob *= math.exp(-0.05 * dwell_overhang)
+    if current_regime == "directional":
+        stay_prob = max(stay_prob, min(0.84, 0.34 + (0.22 * directional_signal)))
+    elif current_regime == "stressed":
+        stay_prob = max(stay_prob, min(0.86, 0.32 + (0.18 * stress_signal)))
+    else:
+        stay_prob = max(stay_prob, 0.18)
+
     probabilities = np.array(
         [stay_prob if regime == current_regime else scaled_row[regime] for regime in REGIME_NAMES],
         dtype=float,

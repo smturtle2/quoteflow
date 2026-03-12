@@ -384,7 +384,15 @@ def plot_market_diagnostics(
     )
     regime_share = history["regime"].value_counts(normalize=True).reindex(REGIME_ORDER, fill_value=0.0)
 
-    figure, axes = plt.subplots(3, 2, figsize=figsize or (15, 10.5), constrained_layout=True)
+    has_extended_debug = {
+        "microphase",
+        "flow_toxicity",
+        "maker_stress",
+        "quote_revision_wave",
+        "refill_pressure",
+    } <= set(debug_history.columns)
+    rows = 4 if has_extended_debug else 3
+    figure, axes = plt.subplots(rows, 2, figsize=figsize or ((15, 13.2) if has_extended_debug else (15, 10.5)), constrained_layout=True)
     figure.suptitle(title or "orderwave diagnostics", fontsize=16, fontweight="bold")
 
     phase_x = np.arange(len(phase_order))
@@ -447,6 +455,67 @@ def plot_market_diagnostics(
     axes[2, 1].set_ylabel("Share")
     axes[2, 1].set_ylim(0.0, max(1.0, max(occupancy_values, default=0.0) * 1.15))
     axes[2, 1].grid(axis="y", alpha=0.25, linestyle="--")
+
+    if has_extended_debug:
+        per_step_debug = (
+            debug_history.groupby("step", sort=True)
+            .agg(
+                microphase=("microphase", "first"),
+                flow_toxicity=("flow_toxicity", "mean"),
+                maker_stress=("maker_stress", "mean"),
+                quote_revision_wave=("quote_revision_wave", "max"),
+                refill_pressure=("refill_pressure", "mean"),
+            )
+        )
+        extended = history.set_index("step").join(per_step_debug, how="left")
+        extended["microphase"] = extended["microphase"].ffill().bfill().fillna("midday_lull")
+        for column in ("flow_toxicity", "maker_stress", "refill_pressure"):
+            extended[column] = extended[column].ffill().bfill().fillna(0.0)
+        extended["quote_revision_wave"] = extended["quote_revision_wave"].fillna(False).astype(bool)
+
+        microphase_order = [
+            "open_release",
+            "morning_trend",
+            "midday_lull",
+            "power_hour",
+            "closing_imbalance",
+        ]
+        microphase_spread = extended.groupby("microphase")["spread"].mean().reindex(microphase_order, fill_value=0.0)
+        microphase_stress = extended.groupby("microphase")["maker_stress"].mean().reindex(microphase_order, fill_value=0.0)
+        microphase_x = np.arange(len(microphase_order))
+
+        axes[3, 0].bar(microphase_x, microphase_spread.to_numpy(dtype=float), color="#0f766e", width=0.6)
+        microphase_ax2 = axes[3, 0].twinx()
+        microphase_ax2.plot(
+            microphase_x,
+            microphase_stress.to_numpy(dtype=float),
+            color="#f97316",
+            linewidth=1.8,
+            marker="o",
+        )
+        axes[3, 0].set_title("Microphase stress profile")
+        axes[3, 0].set_xticks(microphase_x)
+        axes[3, 0].set_xticklabels(["open", "trend", "lull", "power", "close"])
+        axes[3, 0].set_ylabel("Mean spread")
+        microphase_ax2.set_ylabel("Maker stress")
+        axes[3, 0].grid(alpha=0.25, linestyle="--")
+
+        rolling_window = min(24, max(6, len(extended) // 20))
+        revision_share = (
+            extended["quote_revision_wave"].astype(float).rolling(rolling_window, min_periods=1).mean().to_numpy(dtype=float)
+        )
+        refill_trace = extended["refill_pressure"].rolling(rolling_window, min_periods=1).mean().to_numpy(dtype=float)
+        toxicity_trace = extended["flow_toxicity"].rolling(rolling_window, min_periods=1).mean().to_numpy(dtype=float)
+        revision_steps = extended.index.to_numpy(dtype=float)
+
+        axes[3, 1].plot(revision_steps, revision_share, color="#dc2626", linewidth=1.6, label="Revision wave share")
+        axes[3, 1].plot(revision_steps, refill_trace, color="#0891b2", linewidth=1.8, label="Refill pressure")
+        axes[3, 1].plot(revision_steps, toxicity_trace, color="#334155", linewidth=1.4, label="Flow toxicity")
+        axes[3, 1].set_title("Revision and refill pressure")
+        axes[3, 1].set_xlabel("Step")
+        axes[3, 1].set_ylabel("Rolling state")
+        axes[3, 1].grid(alpha=0.25, linestyle="--")
+        axes[3, 1].legend(loc="upper left", frameon=False)
 
     return figure
 

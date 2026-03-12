@@ -64,6 +64,7 @@ DEBUG_COLUMNS = [
     "day",
     "session_step",
     "session_phase",
+    "microphase",
     "source",
     "participant_type",
     "meta_order_id",
@@ -76,6 +77,10 @@ DEBUG_COLUMNS = [
     "impact_residue",
     "regime_dwell",
     "inventory_pressure",
+    "flow_toxicity",
+    "maker_stress",
+    "quote_revision_wave",
+    "refill_pressure",
     "visible_levels_bid",
     "visible_levels_ask",
 ]
@@ -347,6 +352,7 @@ class _DebugStore:
         self._day = array("I")
         self._session_step = array("I")
         self._session_phase = array("B")
+        self._microphase = array("H")
         self._source = array("H")
         self._participant_type = array("H")
         self._meta_order_id = array("i")
@@ -359,9 +365,14 @@ class _DebugStore:
         self._impact_residue = array("d")
         self._regime_dwell = array("I")
         self._inventory_pressure = array("d")
+        self._flow_toxicity = array("d")
+        self._maker_stress = array("d")
+        self._quote_revision_wave = array("B")
+        self._refill_pressure = array("d")
         self._visible_levels_bid = array("I")
         self._visible_levels_ask = array("I")
         self._phase_codec = _CategoryCodec(_PHASES)
+        self._microphase_codec = _CategoryCodec()
         self._source_codec = _CategoryCodec()
         self._participant_codec = _CategoryCodec()
         self._meta_side_codec = _CategoryCodec(("buy", "sell"))
@@ -377,6 +388,7 @@ class _DebugStore:
         day: int,
         session_step: int,
         session_phase: str,
+        microphase: str | None,
         source: str | None,
         participant_type: str | None,
         meta_order_id: int | None,
@@ -389,6 +401,10 @@ class _DebugStore:
         impact_residue: float,
         regime_dwell: int,
         inventory_pressure: float,
+        flow_toxicity: float,
+        maker_stress: float,
+        quote_revision_wave: bool,
+        refill_pressure: float,
         visible_levels_bid: int,
         visible_levels_ask: int,
     ) -> None:
@@ -397,6 +413,7 @@ class _DebugStore:
         self._day.append(int(day))
         self._session_step.append(int(session_step))
         self._session_phase.append(self._phase_codec.encode(session_phase))
+        self._microphase.append(self._microphase_codec.encode(microphase))
         self._source.append(self._source_codec.encode(source))
         self._participant_type.append(self._participant_codec.encode(participant_type))
         self._meta_order_id.append(_INT_SENTINEL if meta_order_id is None else int(meta_order_id))
@@ -409,6 +426,10 @@ class _DebugStore:
         self._impact_residue.append(float(impact_residue))
         self._regime_dwell.append(int(regime_dwell))
         self._inventory_pressure.append(float(inventory_pressure))
+        self._flow_toxicity.append(float(flow_toxicity))
+        self._maker_stress.append(float(maker_stress))
+        self._quote_revision_wave.append(1 if quote_revision_wave else 0)
+        self._refill_pressure.append(float(refill_pressure))
         self._visible_levels_bid.append(int(visible_levels_bid))
         self._visible_levels_ask.append(int(visible_levels_ask))
         self._dirty = True
@@ -422,6 +443,7 @@ class _DebugStore:
                     "day": np.frombuffer(self._day, dtype=np.uint32).astype(np.int64, copy=False),
                     "session_step": np.frombuffer(self._session_step, dtype=np.uint32).astype(np.int64, copy=False),
                     "session_phase": self._phase_codec.decode_many(self._session_phase),
+                    "microphase": self._microphase_codec.decode_many(self._microphase),
                     "source": self._source_codec.decode_many(self._source),
                     "participant_type": self._participant_codec.decode_many(self._participant_type),
                     "meta_order_id": _nullable_int_series(self._meta_order_id),
@@ -434,6 +456,10 @@ class _DebugStore:
                     "impact_residue": np.frombuffer(self._impact_residue, dtype=np.float64),
                     "regime_dwell": np.frombuffer(self._regime_dwell, dtype=np.uint32).astype(np.int64, copy=False),
                     "inventory_pressure": np.frombuffer(self._inventory_pressure, dtype=np.float64),
+                    "flow_toxicity": np.frombuffer(self._flow_toxicity, dtype=np.float64),
+                    "maker_stress": np.frombuffer(self._maker_stress, dtype=np.float64),
+                    "quote_revision_wave": np.frombuffer(self._quote_revision_wave, dtype=np.uint8).astype(bool, copy=False),
+                    "refill_pressure": np.frombuffer(self._refill_pressure, dtype=np.float64),
                     "visible_levels_bid": np.frombuffer(self._visible_levels_bid, dtype=np.uint32).astype(np.int64, copy=False),
                     "visible_levels_ask": np.frombuffer(self._visible_levels_ask, dtype=np.uint32).astype(np.int64, copy=False),
                 },
@@ -526,6 +552,7 @@ class HistoryBuffer:
         day: int,
         session_step: int,
         session_phase: str,
+        microphase: str | None,
         source: str | None,
         participant_type: str | None,
         meta_order_id: int | None,
@@ -538,6 +565,10 @@ class HistoryBuffer:
         impact_residue: float,
         regime_dwell: int,
         inventory_pressure: float,
+        flow_toxicity: float,
+        maker_stress: float,
+        quote_revision_wave: bool,
+        refill_pressure: float,
         visible_levels_bid: int,
         visible_levels_ask: int,
     ) -> None:
@@ -549,6 +580,7 @@ class HistoryBuffer:
             day,
             session_step,
             session_phase,
+            microphase,
             source,
             participant_type,
             meta_order_id,
@@ -561,6 +593,10 @@ class HistoryBuffer:
             impact_residue,
             regime_dwell,
             inventory_pressure,
+            flow_toxicity,
+            maker_stress,
+            quote_revision_wave,
+            refill_pressure,
             visible_levels_bid,
             visible_levels_ask,
         )

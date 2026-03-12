@@ -6,20 +6,44 @@ PyPI publishing is driven by [`workflow.yml`](https://github.com/smturtle2/quote
 
 ## Release Flow
 
-1. Update `version` in `pyproject.toml`
-2. Commit and push to `main`
-3. Open GitHub `Releases`
-4. Draft a new release with a tag like `vX.Y.Z`
-5. Publish the release
-6. Wait for the `Quality`, `Test`, `Build distributions`, `Release Validation`, and `Publish to PyPI` jobs to complete
+1. Run the local checks:
 
-Before PyPI publish, the workflow runs:
+   ```bash
+   python -m pytest -q
+   python -m scripts.validate_orderwave --profile release_smoke --outdir artifacts/validation-release
+   python -m scripts.render_doc_images
+   ```
+
+2. If the smoke validation changed intentionally, refresh the release baseline:
+
+   ```bash
+   python -m scripts.validate_orderwave \
+     --profile release_smoke \
+     --outdir artifacts/validation-release \
+     --write-baseline-json tests/golden/validation_release_baseline.json
+   ```
+
+3. Update `version` in `pyproject.toml`
+4. Commit code, tests, docs, regenerated images, and any intentionally refreshed golden baseline
+5. Push to `main`
+6. Open GitHub `Releases`
+7. Draft a new release with a tag like `vX.Y.Z`
+8. Publish the release
+9. Wait for `Quality`, `Test`, `Build distributions`, `Release Validation`, and `Publish to PyPI`
+
+## What CI Runs Before Publish
+
+The release validation job executes:
 
 ```bash
-python -m scripts.validate_orderwave --profile release_smoke --outdir artifacts/validation-release --baseline-json tests/golden/validation_release_baseline.json --fail-on-baseline-drift
+python -m scripts.validate_orderwave \
+  --profile release_smoke \
+  --outdir artifacts/validation-release \
+  --baseline-json tests/golden/validation_release_baseline.json \
+  --fail-on-baseline-drift
 ```
 
-This smoke profile is intentionally much smaller than the full quality regression sweep so the gate stays fast in CI.
+This profile is intentionally much smaller than the full quality regression sweep so the gate stays fast in CI.
 
 ## Trusted Publisher Settings
 
@@ -34,5 +58,5 @@ This smoke profile is intentionally much smaller than the full quality regressio
 - The release workflow triggers on `release.published`
 - Drafts alone do not publish
 - PyPI trusted publishing requires `id-token: write` in the GitHub Actions job
+- Regenerated doc images are expected to ship with feature-level simulator changes
 - Release validation compares against `tests/golden/validation_release_baseline.json`
-- diagnostics images are not required in the short release profile

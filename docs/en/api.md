@@ -8,7 +8,8 @@
 from orderwave import Market
 ```
 
-`Market` is the supported public entry point. Internal modules such as `orderwave.model` are implementation details rather than stable library API.
+`Market` is the supported public entry point.
+Internal modules such as `orderwave.model` and `orderwave._model` are implementation details rather than stable library API.
 
 For typed helpers:
 
@@ -32,9 +33,8 @@ Market(
 )
 ```
 
-`Market` is the main public entry point. It seeds an initial aggregate order book at `step == 0`, records compact history immediately, and keeps a private visual history for built-in plotting.
-`orderwave` should be read as an aggregate order-book market-state simulator: it focuses on path, book, and regime dynamics rather than order-level fill precision.
-`preset`, `logging_mode`, and `liquidity_backstop` are convenience keywords that override the same fields inside `config`.
+`Market` seeds an initial aggregate order book at `step == 0`, records compact history immediately, and keeps private visual history for built-in plotting.
+`orderwave` should still be read as an aggregate order-book market-state simulator: it focuses on path, book, and regime dynamics rather than order-level fill precision.
 
 ### `step() -> dict`
 
@@ -66,7 +66,7 @@ Return the current snapshot.
 
 Return the current snapshot as a typed dataclass.
 
-Snapshot fields:
+Snapshot fields include:
 
 - `step`
 - `day`
@@ -87,16 +87,22 @@ Snapshot fields:
 - `trade_strength`
 - `depth_imbalance`
 - `regime`
+- `visible_levels_bid`
+- `visible_levels_ask`
+- `drought_age`
+- `recovery_pressure`
+- `impact_residue`
+- `regime_dwell`
+- `inventory_pressure`
 
-`trade_strength` is a realized-trade signed imbalance. It is computed from an EWMA of aggressor buy and sell volume, so quote-only book changes do not alter it.
-
-If `config={"logging_mode": "history_only"}` is used, snapshot and compact history remain available, but event/debug APIs are intentionally disabled.
+`trade_strength` is a realized-trade signed imbalance from an EWMA of aggressor buy and sell volume.
+Quote-only book changes do not move it.
 
 ### `get_history() -> pandas.DataFrame`
 
 Return compact history from the initial seeded book through the current step.
 
-Minimum columns:
+Important columns:
 
 - `step`
 - `day`
@@ -113,12 +119,21 @@ Minimum columns:
 - `trade_strength`
 - `depth_imbalance`
 - `regime`
-
-Additional convenience columns may include summary depth and volatility fields.
+- `top_n_bid_qty`
+- `top_n_ask_qty`
+- `realized_vol`
+- `signed_flow`
+- `visible_levels_bid`
+- `visible_levels_ask`
+- `drought_age`
+- `recovery_pressure`
+- `impact_residue`
+- `regime_dwell`
+- `inventory_pressure`
 
 ### `get_event_history() -> pandas.DataFrame`
 
-Return the applied event log from `step == 1` through the current step.
+Return the applied event log from `step == 1` onward.
 
 Columns:
 
@@ -141,9 +156,8 @@ Columns:
 - `last_trade_price_after`
 - `regime`
 
-The log records applied events only. `market` rows include a `fills` list of `(price, qty)` tuples covering the full sweep path.
-
-This method requires `logging_mode="full"` and raises `RuntimeError` in `history_only` mode.
+The log records applied events only.
+`market` rows include a `fills` list of `(price, qty)` tuples covering the sweep path.
 
 ### `get_debug_history() -> pandas.DataFrame`
 
@@ -156,6 +170,7 @@ Columns:
 - `day`
 - `session_step`
 - `session_phase`
+- `microphase`
 - `source`
 - `participant_type`
 - `meta_order_id`
@@ -168,39 +183,28 @@ Columns:
 - `impact_residue`
 - `regime_dwell`
 - `inventory_pressure`
+- `flow_toxicity`
+- `maker_stress`
+- `quote_revision_wave`
+- `refill_pressure`
 - `visible_levels_bid`
 - `visible_levels_ask`
 
-`get_debug_history()` shares the same `step` and `event_idx` keys as `get_event_history()`. It is intended for advanced inspection and diagnostics rather than the default user workflow.
+Interpretation notes:
 
-This method requires `logging_mode="full"` and raises `RuntimeError` in `history_only` mode.
+- `microphase` exposes the internal time-structure bucket used by the engine
+- `flow_toxicity` tracks how adverse recent aggressive flow looks to passive liquidity
+- `maker_stress` tracks how unstable or defensive the passive side has become
+- `quote_revision_wave` flags structural pre-withdrawal revision events
+- `refill_pressure` tracks post-depletion passive replenishment pressure
 
 ### `get_labeled_event_history() -> pandas.DataFrame`
 
-Return the applied event history joined with aligned debug labels on `step` and `event_idx`.
-
-This method keeps event columns unsuffixed and appends the debug-only columns:
-
-- `source`
-- `participant_type`
-- `meta_order_id`
-- `meta_order_side`
-- `meta_order_progress`
-- `burst_state`
-- `shock_state`
-- `drought_age`
-- `recovery_pressure`
-- `impact_residue`
-- `regime_dwell`
-- `inventory_pressure`
-- `visible_levels_bid`
-- `visible_levels_ask`
-
-This method requires `logging_mode="full"` and raises `RuntimeError` in `history_only` mode.
+Return event history joined with aligned debug labels on `step` and `event_idx`.
 
 ### `plot(*, levels: int | None = None, title: str | None = None, figsize: tuple[float, float] | None = None) -> matplotlib.figure.Figure`
 
-Render the built-in overview figure with:
+Render the main overview figure with:
 
 - `mid_price`
 - `last_price`
@@ -208,60 +212,22 @@ Render the built-in overview figure with:
 - `trade_strength`
 - signed visible-depth heatmap
 
-`levels` defaults to the market's visible depth and is clamped to the internal book buffer.
-
 ### `plot_book(*, levels: int | None = None, title: str | None = None, figsize: tuple[float, float] | None = None) -> matplotlib.figure.Figure`
 
-Render the current order book on a real price axis. Bid and ask depth are mirrored around zero and the figure highlights best bid, best ask, and microprice.
+Render the current order book on a real price axis.
+Bid and ask depth are mirrored around zero and the figure highlights best bid, best ask, and microprice.
 
 ### `plot_diagnostics(*, imbalance_bins: int = 8, max_lag: int = 12, title: str | None = None, figsize: tuple[float, float] | None = None) -> matplotlib.figure.Figure`
 
-Render a 3x2 diagnostics figure with:
+Render a diagnostics figure that includes the classical market-state panels and, when full debug data is available, additional microphase and revision/refill panels.
 
-- session phase spread and filled-volume profile
-- depth imbalance to next mid-return relationship
-- market-flow excitation profile
-- spread-volatility coupling
-- depletion resiliency
-- regime and shock occupancy
+### Logging Modes
 
-This method requires at least two recorded history rows.
-It also requires `logging_mode="full"` and raises `RuntimeError` in `history_only` mode.
+- `logging_mode="full"` keeps summary, event, debug, and plotting history
+- `logging_mode="history_only"` keeps summary history plus overview/book plotting state only
 
-## `orderwave.config.MarketConfig`
+In `history_only` mode:
 
-```python
-from orderwave.config import MarketConfig
-```
-
-`MarketConfig` is the advanced configuration type. It keeps the external surface small by exposing:
-
-- `preset`
-- `book_buffer_levels`
-- `flow_window`
-- `vol_window`
-- `limit_rate_scale`
-- `market_rate_scale`
-- `cancel_rate_scale`
-- `fair_price_vol_scale`
-- `regime_transition_scale`
-- `steps_per_day`
-- `seasonality_scale`
-- `excitation_scale`
-- `meta_order_scale`
-- `shock_scale`
-- `resiliency_scale`
-- `depletion_scale`
-- `participant_feedback_scale`
-- `logging_mode`
-- `liquidity_backstop`
-
-`config` passed to `Market` can be either a `MarketConfig` instance or a plain mapping with the same keys.
-
-## `orderwave.validation`
-
-`orderwave.validation` is the supported advanced Python API for validation tooling. The primary entry points are:
-
-- `run_market_validation(...)`
-- `run_sensitivity_grid(...)`
-- `run_validation_pipeline(...)`
+- `get_history()` still works
+- `plot()` and `plot_book()` still work
+- `get_event_history()`, `get_debug_history()`, `get_labeled_event_history()`, and `plot_diagnostics()` raise `RuntimeError`

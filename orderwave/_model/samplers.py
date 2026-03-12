@@ -168,13 +168,17 @@ def _sample_event_budget(
     params: PresetParams,
     rng: np.random.Generator,
 ) -> int:
+    microphase_multiplier = _microphase_budget_multiplier(context.microphase, event_type)
     if event_type == "limit":
         base = params.budgets.target_limit_events
         multiplier = context.seasonality["limit"] * {"calm": 0.95, "directional": 1.05, "stressed": 0.9}[regime]
+        multiplier *= microphase_multiplier
         multiplier *= 1.0 + (0.08 * (context.excitation["limit_bid_near"] + context.excitation["limit_ask_near"]))
         multiplier *= 1.0 + (0.12 * (context.best_depth_deficit_bid + context.best_depth_deficit_ask))
         multiplier *= 1.0 + (0.1 * config.depletion_scale * (context.recovery_pressure + context.one_sided_pressure))
+        multiplier *= 1.0 + (0.08 * context.refill_pressure)
         multiplier *= max(0.55, 1.0 - (0.06 * context.passive_withdrawal))
+        multiplier *= max(0.45, 1.0 - (0.04 * context.maker_stress))
         if context.shock is not None and context.shock.name == "liquidity_drought":
             multiplier *= max(0.65, 1.0 - (0.18 * context.shock.intensity))
         scale = config.limit_rate_scale
@@ -182,9 +186,11 @@ def _sample_event_budget(
     elif event_type == "market":
         base = params.budgets.target_market_events
         multiplier = context.seasonality["market"] * {"calm": 0.9, "directional": 1.15, "stressed": 1.25}[regime]
+        multiplier *= microphase_multiplier
         multiplier *= 1.0 + (0.12 * (context.excitation["market_buy"] + context.excitation["market_sell"]))
         multiplier *= 1.0 + (0.3 * abs(_meta_signal(context.meta_orders)) * (0.7 + (0.6 * config.meta_order_scale)))
         multiplier *= 1.0 + (0.12 * context.impact_residue) + (0.08 * context.one_sided_pressure)
+        multiplier *= 1.0 + (0.08 * context.flow_toxicity) + (0.05 * context.maker_stress)
         multiplier *= max(0.6, 1.0 - (0.05 * context.noise_fatigue))
         if context.shock is not None:
             if context.shock.name == "one_sided_taker_surge":
@@ -196,9 +202,11 @@ def _sample_event_budget(
     else:
         base = params.budgets.target_cancel_events
         multiplier = context.seasonality["cancel"] * {"calm": 0.95, "directional": 1.05, "stressed": 1.18}[regime]
+        multiplier *= microphase_multiplier
         multiplier *= 1.0 + (0.1 * (context.excitation["cancel_bid_near"] + context.excitation["cancel_ask_near"]))
         multiplier *= 1.0 + (0.14 * context.hidden_vol)
         multiplier *= 1.0 + (0.08 * context.drought_age) + (0.1 * context.passive_withdrawal)
+        multiplier *= 1.0 + (0.1 * context.quote_revision_pressure) + (0.05 * context.maker_stress)
         if context.shock is not None:
             if context.shock.name == "liquidity_drought":
                 multiplier *= 1.0 + (0.28 * context.shock.intensity)
@@ -257,6 +265,11 @@ def _participant_mix_specs(
         weights["inventory_mm"] += 0.12 * config.participant_feedback_scale * min(context.recovery_pressure, 2.0)
         weights["passive_lp"] = max(0.06, weights["passive_lp"] - (0.05 * context.passive_withdrawal))
         weights["noise_taker"] = max(0.03, weights["noise_taker"] - (0.03 * context.noise_fatigue))
+        if context.microphase == "midday_lull":
+            weights["passive_lp"] += 0.05
+            weights["noise_taker"] = max(0.03, weights["noise_taker"] - 0.02)
+        if context.microphase in {"power_hour", "closing_imbalance"}:
+            weights["inventory_mm"] += 0.04
         same_meta = context.meta_orders["buy" if side == "bid" else "sell"]
         if same_meta is not None:
             weights["informed_meta"] += 0.08 * same_meta.urgency
@@ -276,6 +289,13 @@ def _participant_mix_specs(
         weights["noise_taker"] = max(0.08, weights["noise_taker"] - (0.06 * context.noise_fatigue))
         weights["inventory_mm"] += 0.05 * config.participant_feedback_scale * abs(context.inventory_pressure)
         weights["informed_meta"] += 0.07 * context.impact_residue
+        weights["inventory_mm"] += 0.03 * context.maker_stress
+        if context.microphase == "midday_lull":
+            weights["noise_taker"] = max(0.08, weights["noise_taker"] - 0.08)
+            weights["inventory_mm"] += 0.03
+        if context.microphase in {"power_hour", "closing_imbalance"}:
+            weights["noise_taker"] += 0.06
+            weights["inventory_mm"] += 0.03
         same_meta = context.meta_orders[side]
         if same_meta is not None:
             scale_bias = max(config.meta_order_scale - 1.0, 0.0)
@@ -295,6 +315,10 @@ def _participant_mix_specs(
         }
         weights["inventory_mm"] += 0.08 * context.recovery_pressure
         weights["passive_lp"] += 0.05 * context.passive_withdrawal
+        weights["inventory_mm"] += 0.06 * context.quote_revision_pressure
+        if context.microphase in {"power_hour", "closing_imbalance"}:
+            weights["inventory_mm"] += 0.05
+            weights["passive_lp"] += 0.02
         opposite_meta = context.meta_orders["buy" if side == "ask" else "sell"]
         if opposite_meta is not None:
             weights["informed_meta"] += 0.08 * opposite_meta.urgency
@@ -525,3 +549,18 @@ def _sample_cancel_qty(
     )
     chunk = min(current_qty, coerce_quantity(base))
     return int(max(chunk, 0))
+
+
+def _microphase_budget_multiplier(
+    microphase: str,
+    event_type: Literal["limit", "market", "cancel"],
+) -> float:
+    profiles = {
+        "open_release": {"limit": 0.92, "market": 1.18, "cancel": 1.12},
+        "morning_trend": {"limit": 0.98, "market": 1.08, "cancel": 1.02},
+        "midday_lull": {"limit": 1.04, "market": 0.74, "cancel": 0.82},
+        "power_hour": {"limit": 0.98, "market": 1.16, "cancel": 1.12},
+        "closing_imbalance": {"limit": 0.88, "market": 1.28, "cancel": 1.24},
+    }
+    phase_profile = profiles.get(microphase, profiles["morning_trend"])
+    return float(phase_profile[event_type])

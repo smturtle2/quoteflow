@@ -8,9 +8,10 @@
 from orderwave import Market
 ```
 
-지원되는 공개 진입점은 `Market`입니다. `orderwave.model` 같은 내부 모듈은 구현 세부사항이며 안정적인 라이브러리 API가 아닙니다.
+`Market`이 지원되는 공개 진입점입니다.
+`orderwave.model`, `orderwave._model` 같은 내부 모듈은 안정적인 라이브러리 API로 취급하지 않습니다.
 
-typed helper를 직접 import하려면:
+typed helper가 필요하면:
 
 ```python
 from orderwave.market import BookLevel, MarketSnapshot, SimulationResult
@@ -32,23 +33,22 @@ Market(
 )
 ```
 
-`Market`는 메인 공개 진입점입니다. `step == 0`에서 초기 aggregate order book을 시드하고 compact history를 즉시 기록하며, built-in plotting을 위한 private visual history도 함께 유지합니다.
-`orderwave`는 aggregate order-book market-state simulator로 읽는 것이 맞습니다. 초점은 order-level fill 정밀도가 아니라 경로, book state, regime dynamics에 있습니다.
-`preset`, `logging_mode`, `liquidity_backstop`은 `config` 안의 같은 필드를 덮어쓰는 convenience keyword입니다.
+`Market`은 `step == 0`에서 초기 aggregate order book을 seed하고, 바로 compact history를 기록하며, plotting용 private visual history도 함께 유지합니다.
+여전히 aggregate order-book market-state simulator로 읽는 것이 맞고, order-level fill precision은 목표가 아닙니다.
 
 ### `step() -> dict`
 
-한 번의 micro-batch를 진행하고 최신 snapshot을 반환합니다.
+한 번의 micro-batch를 실행하고 최신 snapshot을 반환합니다.
 
 ### `gen(steps: int) -> dict`
 
-`steps`번 진행하고 마지막 snapshot을 반환합니다.
+`steps`번 진행하고 최신 snapshot을 반환합니다.
 
 ### `run(steps: int) -> SimulationResult`
 
-`steps`번 진행하고 bundled result object를 반환합니다.
+`steps`번 진행하고 bundled result를 반환합니다.
 
-`SimulationResult`에는 다음 필드가 들어 있습니다.
+`SimulationResult`에는 다음이 들어 있습니다.
 
 - `snapshot`
 - `history`
@@ -56,7 +56,7 @@ Market(
 - `debug_history`
 - `labeled_event_history`
 
-`history_only` 모드에서는 history는 유지되고 event/debug 계열 필드는 `None`입니다.
+`history_only` 모드에서는 `history`만 남고 event/debug 계열은 `None`입니다.
 
 ### `get() -> dict`
 
@@ -87,16 +87,22 @@ Market(
 - `trade_strength`
 - `depth_imbalance`
 - `regime`
+- `visible_levels_bid`
+- `visible_levels_ask`
+- `drought_age`
+- `recovery_pressure`
+- `impact_residue`
+- `regime_dwell`
+- `inventory_pressure`
 
-`trade_strength`는 체결량 기반 signed imbalance입니다. 실제 aggressor buy/sell 체결량의 EWMA로 계산되며, quote-only 변화로는 바뀌지 않습니다.
-
-`config={"logging_mode": "history_only"}`를 쓰면 snapshot과 compact history는 그대로 유지되지만, event/debug API는 의도적으로 비활성화됩니다.
+`trade_strength`는 aggressor buy/sell 체결량 EWMA 기반 realized-trade signed imbalance입니다.
+quote-only 변화만으로는 움직이지 않습니다.
 
 ### `get_history() -> pandas.DataFrame`
 
-초기 시드 상태부터 현재 step까지의 compact history를 반환합니다.
+초기 seeded book부터 현재 step까지 compact history를 반환합니다.
 
-최소 컬럼:
+중요 컬럼:
 
 - `step`
 - `day`
@@ -113,12 +119,21 @@ Market(
 - `trade_strength`
 - `depth_imbalance`
 - `regime`
-
-추가로 요약 depth, 변동성 컬럼이 포함될 수 있습니다.
+- `top_n_bid_qty`
+- `top_n_ask_qty`
+- `realized_vol`
+- `signed_flow`
+- `visible_levels_bid`
+- `visible_levels_ask`
+- `drought_age`
+- `recovery_pressure`
+- `impact_residue`
+- `regime_dwell`
+- `inventory_pressure`
 
 ### `get_event_history() -> pandas.DataFrame`
 
-`step == 1`부터 현재 step까지의 적용 이벤트 로그를 반환합니다.
+`step == 1` 이후의 applied event log를 반환합니다.
 
 컬럼:
 
@@ -141,32 +156,7 @@ Market(
 - `last_trade_price_after`
 - `regime`
 
-이 로그는 샘플링된 의도 이벤트가 아니라 실제로 적용된 이벤트만 기록합니다. `market` 행의 `fills`에는 전체 sweep 경로가 `(price, qty)` 튜플 리스트로 들어갑니다.
-
-이 메서드는 `logging_mode="full"`에서만 동작하며, `history_only`에서는 `RuntimeError`를 발생시킵니다.
-
-### `get_labeled_event_history() -> pandas.DataFrame`
-
-`step`, `event_idx`를 기준으로 applied event history와 aligned debug label을 join한 테이블을 반환합니다.
-
-event 컬럼은 그대로 유지하고, 아래 debug 전용 컬럼이 뒤에 붙습니다.
-
-- `source`
-- `participant_type`
-- `meta_order_id`
-- `meta_order_side`
-- `meta_order_progress`
-- `burst_state`
-- `shock_state`
-- `drought_age`
-- `recovery_pressure`
-- `impact_residue`
-- `regime_dwell`
-- `inventory_pressure`
-- `visible_levels_bid`
-- `visible_levels_ask`
-
-이 메서드는 `logging_mode="full"`에서만 동작하며, `history_only`에서는 `RuntimeError`를 발생시킵니다.
+`market` row의 `fills`는 sweep path 전체를 `(price, qty)` tuple list로 담습니다.
 
 ### `get_debug_history() -> pandas.DataFrame`
 
@@ -179,6 +169,7 @@ event-aligned latent debug stream을 반환합니다.
 - `day`
 - `session_step`
 - `session_phase`
+- `microphase`
 - `source`
 - `participant_type`
 - `meta_order_id`
@@ -191,16 +182,28 @@ event-aligned latent debug stream을 반환합니다.
 - `impact_residue`
 - `regime_dwell`
 - `inventory_pressure`
+- `flow_toxicity`
+- `maker_stress`
+- `quote_revision_wave`
+- `refill_pressure`
 - `visible_levels_bid`
 - `visible_levels_ask`
 
-`get_debug_history()`는 `get_event_history()`와 같은 `step`, `event_idx` 키를 공유합니다. 기본 사용 흐름보다는 고급 검증과 diagnostics용 API입니다.
+해석 포인트:
 
-이 메서드는 `logging_mode="full"`에서만 동작하며, `history_only`에서는 `RuntimeError`를 발생시킵니다.
+- `microphase`: 엔진 내부 시간구조 버킷
+- `flow_toxicity`: 최근 aggressive flow가 passive liquidity에 얼마나 adverse한지
+- `maker_stress`: passive side가 얼마나 방어적으로 변했는지
+- `quote_revision_wave`: structural pre-withdrawal revision 이벤트 여부
+- `refill_pressure`: depletion 이후 passive replenishment 압력
+
+### `get_labeled_event_history() -> pandas.DataFrame`
+
+`step`과 `event_idx` 기준으로 event history와 debug history를 join한 테이블을 반환합니다.
 
 ### `plot(*, levels: int | None = None, title: str | None = None, figsize: tuple[float, float] | None = None) -> matplotlib.figure.Figure`
 
-다음 요소를 포함한 built-in overview figure를 렌더링합니다.
+다음을 포함한 overview figure를 렌더합니다.
 
 - `mid_price`
 - `last_price`
@@ -208,60 +211,22 @@ event-aligned latent debug stream을 반환합니다.
 - `trade_strength`
 - signed visible-depth heatmap
 
-`levels`는 기본 visible depth를 사용하고, 내부 book buffer를 넘기면 자동으로 clamp 됩니다.
-
 ### `plot_book(*, levels: int | None = None, title: str | None = None, figsize: tuple[float, float] | None = None) -> matplotlib.figure.Figure`
 
-현재 order book을 실제 가격축으로 렌더링합니다. bid/ask depth는 0을 기준으로 좌우 mirrored bar로 표시되고, best bid, best ask, microprice를 함께 강조합니다.
+현재 order book을 실제 가격축으로 렌더합니다.
+bid/ask depth는 0을 기준으로 좌우 대칭으로 놓이고, best bid, best ask, microprice를 함께 표시합니다.
 
 ### `plot_diagnostics(*, imbalance_bins: int = 8, max_lag: int = 12, title: str | None = None, figsize: tuple[float, float] | None = None) -> matplotlib.figure.Figure`
 
-다음 3x2 diagnostics figure를 렌더링합니다.
+기존 market-state 패널에 더해, full debug 데이터가 있으면 microphase와 revision/refill 패널까지 포함한 diagnostics figure를 렌더합니다.
 
-- session phase spread / filled-volume profile
-- depth imbalance -> next mid return 관계
-- market-flow excitation profile
-- spread-volatility coupling
-- depletion resiliency
-- regime / shock occupancy
+### Logging Mode
 
-이 메서드는 최소 두 개 이상의 history row가 필요합니다.
-또한 `logging_mode="full"`에서만 동작하며, `history_only`에서는 `RuntimeError`를 발생시킵니다.
+- `logging_mode="full"`: summary, event, debug, plotting history 유지
+- `logging_mode="history_only"`: summary history와 overview/book plotting state만 유지
 
-## `orderwave.config.MarketConfig`
+`history_only` 모드에서는:
 
-```python
-from orderwave.config import MarketConfig
-```
-
-`MarketConfig`는 고급 설정 타입입니다. 외부 표면은 아래 필드들로만 제한합니다.
-
-- `preset`
-- `book_buffer_levels`
-- `flow_window`
-- `vol_window`
-- `limit_rate_scale`
-- `market_rate_scale`
-- `cancel_rate_scale`
-- `fair_price_vol_scale`
-- `regime_transition_scale`
-- `steps_per_day`
-- `seasonality_scale`
-- `excitation_scale`
-- `meta_order_scale`
-- `shock_scale`
-- `resiliency_scale`
-- `depletion_scale`
-- `participant_feedback_scale`
-- `logging_mode`
-- `liquidity_backstop`
-
-`Market`에 전달하는 `config`는 `MarketConfig` 인스턴스나 같은 키를 가진 `dict` 둘 다 가능합니다.
-
-## `orderwave.validation`
-
-`orderwave.validation`은 validation tooling을 위한 지원되는 고급 Python API입니다. 대표 entrypoint는 아래 셋입니다.
-
-- `run_market_validation(...)`
-- `run_sensitivity_grid(...)`
-- `run_validation_pipeline(...)`
+- `get_history()`는 계속 동작합니다
+- `plot()`과 `plot_book()`은 계속 동작합니다
+- `get_event_history()`, `get_debug_history()`, `get_labeled_event_history()`, `plot_diagnostics()`는 `RuntimeError`를 발생시킵니다

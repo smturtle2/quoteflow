@@ -6,11 +6,11 @@
 
 Order-flow-driven aggregate order-book market-state simulation for Python, with built-in visualization.
 
-`orderwave` does not random-walk price directly. It simulates a sparse aggregate order book, participant-conditioned limit flow, marketable flow, cancellations, latent meta-orders, exogenous shocks, and session-aware state changes, then lets price emerge from those book mechanics. The same `Market` object can render the path, the current book snapshot, and built-in market-state diagnostics without extra plotting glue.
+`orderwave` models a sparse aggregate order book, participant-conditioned limit flow, marketable flow, adverse quote revision, passive refill, latent meta-orders, exogenous shocks, and session-aware state changes. Price is still an outcome of book mechanics rather than a directly random-walked process.
 
 `orderwave` is an aggregate order-book market-state simulator.
-It is designed to generate believable intraday market paths, book states, and regime changes for research, visualization, and sandbox experimentation.
-It does not try to present itself as an order-level matching or fill-precision simulator.
+It is built for believable intraday path generation, book-state diagnostics, preset comparison, and sandbox experimentation.
+It is not an order-level matching or fill-precision simulator.
 
 [English Docs](https://github.com/smturtle2/quoteflow/tree/main/docs/en) | [한국어 README](https://github.com/smturtle2/quoteflow/blob/main/README.ko.md) | [한국어 문서](https://github.com/smturtle2/quoteflow/tree/main/docs/ko)
 
@@ -19,12 +19,12 @@ It does not try to present itself as an order-level matching or fill-precision s
 ## Why orderwave
 
 - Minimal public entry point: `from orderwave import Market`
-- `Market` is the supported public API; engine and model internals are implementation details
-- Price changes only as a consequence of book mechanics
-- Hidden fair value, session clock, shocks, and meta-orders bias flow without directly overwriting price
+- `Market` is the supported public API; engine and model internals stay private
+- Price changes only through quote improvement, depletion, marketable flow, and refill dynamics
+- Internal microphases shape open release, midday lull, power-hour activity, and closing imbalance behavior
 - Same seed, same path
-- Built-in figures for overview, current book, and diagnostics
-- Thin public event history plus optional latent debug history
+- Built-in overview, current-book, and diagnostics figures
+- Thin public history plus richer event-aligned debug history when you want the latent state
 
 ## Installation
 
@@ -48,7 +48,8 @@ result = market.run(steps=1_000)
 
 snapshot = market.get_snapshot()
 history = market.get_history()
-events = market.get_labeled_event_history()
+events = market.get_event_history()
+debug = market.get_debug_history()
 overview = market.plot()
 book = market.plot_book()
 diagnostics = market.plot_diagnostics()
@@ -56,12 +57,12 @@ diagnostics = market.plot_diagnostics()
 print(snapshot.session_phase, snapshot.mid_price, snapshot.best_bid, snapshot.best_ask)
 print(history.tail())
 print(events.tail())
-print(result.debug_history.tail())
+print(debug[["microphase", "maker_stress", "quote_revision_wave", "refill_pressure"]].tail())
 
 overview.savefig("orderwave-overview.png")
 ```
 
-For lighter long runs where you only need summary history, visible book snapshots, and trade strength:
+For long runs where compact history and plotting are enough:
 
 ```python
 fast_market = Market(seed=7, preset="balanced", logging_mode="history_only")
@@ -69,9 +70,57 @@ summary = fast_market.run(steps=10_000).history
 figure = fast_market.plot()
 ```
 
+## Core Realism Model
+
+- Aggregate visible book levels rather than per-order FIFO
+- Participant mix: `passive_lp`, `inventory_mm`, `noise_taker`, `informed_meta`
+- Market-first step cycle with structural pre-withdrawal and post-refill behavior
+- Regime persistence plus hazard-like switching between `calm`, `directional`, and `stressed`
+- Session phase and internal microphase structure: `open_release`, `morning_trend`, `midday_lull`, `power_hour`, `closing_imbalance`
+- Event-aligned latent diagnostics including `flow_toxicity`, `maker_stress`, `quote_revision_wave`, and `refill_pressure`
+
+## API Surface
+
+| API | Purpose |
+| --- | --- |
+| `step()` | Run one micro-batch and return the latest snapshot |
+| `gen(steps=n)` | Run `n` micro-batches and return the latest snapshot |
+| `run(steps=n)` | Run `n` micro-batches and return a bundled typed result |
+| `get()` | Return the current snapshot |
+| `get_snapshot()` | Return the current snapshot as a typed dataclass |
+| `get_history()` | Return compact `pandas.DataFrame` history |
+| `get_event_history()` | Return the applied event log as a `pandas.DataFrame` |
+| `get_debug_history()` | Return event-aligned latent debug history |
+| `get_labeled_event_history()` | Return event history joined with latent debug labels |
+| `plot()` | Render price, spread, trade strength, and signed visible-depth heatmap |
+| `plot_book()` | Render the current order book on a real price axis |
+| `plot_diagnostics()` | Render session, excitation, imbalance, spread/volatility, resiliency, occupancy, microphase, and revision/refill diagnostics |
+
+Advanced configuration is available through `orderwave.config.MarketConfig`.
+Common settings can also be passed directly as `Market(..., preset="trend", logging_mode="history_only", liquidity_backstop="off")`.
+
+`logging_mode="history_only"` keeps summary history plus overview/book plotting data, but disables `get_event_history()`, `get_debug_history()`, and `plot_diagnostics()`.
+Default `liquidity_backstop="on_empty"` restores a missing side without forcing minimum visible depth after every step.
+Use `"always"` for more aggressively stabilized books or `"off"` to allow thinner post-step liquidity.
+
+## Built-in Visualization
+
+All plotting methods return `matplotlib.figure.Figure` and leave save/show control to the caller.
+
+- `plot()` renders the main overview: mid/last price, spread band, trade strength, and signed visible-depth heatmap
+- `plot_book()` renders the current order book on a real price axis
+- `plot_diagnostics()` renders:
+  session phase profile, imbalance lead, market-flow excitation, spread-volatility coupling, depletion resiliency, regime/shock occupancy, microphase stress profile, and revision/refill pressure
+
+![orderwave current book](https://raw.githubusercontent.com/smturtle2/quoteflow/main/docs/assets/orderwave-built-in-current-book.png)
+
+![orderwave diagnostics](https://raw.githubusercontent.com/smturtle2/quoteflow/main/docs/assets/orderwave-built-in-diagnostics.png)
+
+The overview heatmap keeps signed depth. Ask liquidity is red, bid liquidity is blue, `0` maps to a light gray midpoint, and missing levels render as blank background.
+
 ## Performance Measurement
 
-Use the single performance runner when you want a quick throughput check plus a `full` vs `history_only` logging comparison.
+Use the single performance runner for throughput, memory, and `full` vs `history_only` logging comparison.
 
 ```bash
 python -m scripts.measure_performance --preset balanced --seeds 20 --steps 20000 --outdir artifacts/performance
@@ -86,7 +135,7 @@ The runner writes:
 
 ## Validation Sweep
 
-The repository also includes a validation runner for preset sweeps, knob sensitivity, reproducibility checks, and soak tests.
+The repository also ships a validation runner for preset sweeps, sensitivity checks, reproducibility, and soak tests.
 
 ```bash
 python -m scripts.validate_orderwave --profile quality_regression --jobs 4 --outdir artifacts/validation
@@ -102,68 +151,19 @@ The runner writes:
 - `acceptance_decision.md`
 - `diagnostics_<preset>_<seed>.png` when diagnostics rendering is enabled
 
-Release builds run a separate `Release Validation` job that executes the shorter `--profile release_smoke` regression and compares it against `tests/golden/validation_release_baseline.json` before PyPI publish.
-That smoke profile is intentionally kept small so the CI validation gate stays fast.
+Release builds use a shorter smoke workload:
 
-The current engine roadmap is broader market-state fidelity: stronger preset separation, richer time structure, cleaner sensitivity control, and better validation artifacts.
-
-## API Surface
-
-| API | Purpose |
-| --- | --- |
-| `step()` | Run one micro-batch and return the latest snapshot |
-| `gen(steps=n)` | Run `n` micro-batches and return the latest snapshot |
-| `run(steps=n)` | Run `n` micro-batches and return a bundled typed result |
-| `get()` | Return the current snapshot |
-| `get_snapshot()` | Return the current snapshot as a typed dataclass |
-| `get_history()` | Return compact `pandas.DataFrame` history |
-| `get_event_history()` | Return the applied event log as a `pandas.DataFrame` |
-| `get_debug_history()` | Return event-aligned latent debug history for advanced inspection |
-| `get_labeled_event_history()` | Return event history joined with latent debug labels |
-| `plot()` | Render price, spread, trade strength, and visible-book heatmap |
-| `plot_book()` | Render the current order book on a real price axis |
-| `plot_diagnostics()` | Render session, excitation, imbalance, spread/volatility, resiliency, and occupancy diagnostics |
-
-Advanced configuration is available through `orderwave.config.MarketConfig`.
-Common settings can also be passed directly as `Market(..., preset="trend", logging_mode="history_only", liquidity_backstop="off")`.
-
-`logging_mode="history_only"` keeps summary history plus overview/book plotting data, but disables `get_event_history()`, `get_debug_history()`, and `plot_diagnostics()`.
-Default `liquidity_backstop="on_empty"` restores a missing side without forcing minimum visible depth after every step.
-Use `"always"` when you want a more aggressively stabilized book, or `"off"` when you want to allow thinner post-step liquidity.
-
-## Built-in Visualization
-
-All plotting methods return `matplotlib.figure.Figure` and leave save/show control to the caller.
-
-- `plot()` renders the main overview: price, spread, realized-trade imbalance, and signed visible-depth heatmap
-- `plot_book()` renders the current order book on a real price axis
-- `plot_diagnostics()` renders session phase profile, imbalance lead, market-flow excitation, spread-volatility coupling, depletion resiliency, and regime or shock occupancy
-
-![orderwave current book](https://raw.githubusercontent.com/smturtle2/quoteflow/main/docs/assets/orderwave-built-in-current-book.png)
-
-![orderwave diagnostics](https://raw.githubusercontent.com/smturtle2/quoteflow/main/docs/assets/orderwave-built-in-diagnostics.png)
-
-The overview heatmap keeps signed depth. Ask liquidity is red, bid liquidity is blue, `0` maps to a light gray midpoint, and missing levels render as blank background instead of black cells.
-
-## Presets At A Glance
-
-![orderwave presets](https://raw.githubusercontent.com/smturtle2/quoteflow/main/docs/assets/orderwave-built-in-presets.png)
-
-`balanced`, `trend`, and `volatile` reuse the same public API while shifting spread behavior, flow pressure, cancellation pressure, and hidden fair-price dynamics.
+```bash
+python -m scripts.validate_orderwave --profile release_smoke --outdir artifacts/validation-release --baseline-json tests/golden/validation_release_baseline.json --fail-on-baseline-drift
+```
 
 ## Core Semantics
 
-`Market.get()` returns a compact dictionary with session clock fields, prices, spread, visible depth, aggressive volume, trade strength, depth imbalance, and regime.
-
-`trade_strength` is a realized-trade signed imbalance. It is computed from an EWMA of aggressor buy and sell volume, so quote-only book changes do not move it.
-
-`Market.run()` returns a `SimulationResult` bundle with the typed snapshot plus whichever tables are available for the current logging mode.
-
-Important distinction:
-
-- `mid_price` can move when quotes improve, cancel, or get depleted
-- `last_price` only changes when a trade actually executes
-- `day`, `session_step`, and `session_phase` expose the synthetic intraday clock
+- `mid_price` moves when quotes improve, cancel, or get depleted
+- `last_price` only changes on realized trades
+- `day`, `session_step`, and `session_phase` expose the synthetic session clock
+- `trade_strength` is a realized-trade signed imbalance from aggressor buy/sell EWMA
+- `get_debug_history()` adds latent fields such as `microphase`, `flow_toxicity`, `maker_stress`, `quote_revision_wave`, and `refill_pressure`
 
 Core guarantees:
 
@@ -171,7 +171,6 @@ Core guarantees:
 - Quote improvement, best-quote depletion, and market trades are the only price-moving mechanisms
 - Visible history starts at `step == 0` with the seeded initial book
 - Applied limit, market, and cancel events are available through `get_event_history()`
-- Participant type, meta-order progress, burst state, and shock state are available through `get_debug_history()`
 - Aggregate depth is modeled without exposing per-order FIFO complexity in v1
 
 ## Docs

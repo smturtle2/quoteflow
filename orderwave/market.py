@@ -12,7 +12,7 @@ import pandas as pd
 
 from orderwave._engine import _MarketEngine
 from orderwave._model.backstop import ensure_visible_depth
-from orderwave._model.latent import seasonality_multipliers
+from orderwave._model.latent import resolve_microphase, seasonality_multipliers
 from orderwave._model.scoring import score_limit_levels
 from orderwave._model.types import EXCITATION_KEYS, MetaOrderState, ShockState
 from orderwave.book import OrderBook
@@ -186,6 +186,7 @@ class Market:
         self._session_step = 0
         self._session_phase = "open"
         self._session_progress = 0.0
+        self._microphase = resolve_microphase(self._session_progress)
         self._seasonality = seasonality_multipliers(
             self._session_phase,
             session_progress=self._session_progress,
@@ -218,6 +219,11 @@ class Market:
         self._inventory_pressure = 0.0
         self._passive_withdrawal_bias = 0.0
         self._noise_fatigue = 0.0
+        self._flow_toxicity = 0.0
+        self._maker_stress = 0.0
+        self._quote_revision_pressure = 0.0
+        self._refill_pressure = 0.0
+        self._quote_revision_wave = False
 
         self._last_trade_price = self._init_price
         self._last_trade_side: str | None = None

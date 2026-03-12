@@ -178,6 +178,9 @@ class ShockParams:
 @dataclass(frozen=True)
 class ResiliencyParams:
     resiliency_half_life: float
+    withdrawal_sensitivity: float
+    refill_strength: float
+    revision_sensitivity: float
 
 
 @dataclass(frozen=True)
@@ -300,6 +303,9 @@ _PRESETS: dict[PresetName, PresetParams] = {
         ),
         resiliency=ResiliencyParams(
             resiliency_half_life=7.0,
+            withdrawal_sensitivity=0.72,
+            refill_strength=1.08,
+            revision_sensitivity=0.68,
         ),
         budgets=BudgetParams(
             target_limit_events=5.5,
@@ -381,6 +387,9 @@ _PRESETS: dict[PresetName, PresetParams] = {
         ),
         resiliency=ResiliencyParams(
             resiliency_half_life=9.0,
+            withdrawal_sensitivity=0.9,
+            refill_strength=0.96,
+            revision_sensitivity=0.84,
         ),
         budgets=BudgetParams(
             target_limit_events=5.0,
@@ -462,6 +471,9 @@ _PRESETS: dict[PresetName, PresetParams] = {
         ),
         resiliency=ResiliencyParams(
             resiliency_half_life=11.0,
+            withdrawal_sensitivity=1.18,
+            refill_strength=0.78,
+            revision_sensitivity=1.12,
         ),
         budgets=BudgetParams(
             target_limit_events=6.0,

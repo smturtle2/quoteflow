@@ -205,7 +205,8 @@ def test_run_returns_bundle_with_labeled_event_history() -> None:
     assert result.event_history is not None
     assert result.debug_history is not None
     assert result.labeled_event_history is not None
-    assert list(result.labeled_event_history.columns[-14:]) == [
+    assert list(result.labeled_event_history.columns[-19:]) == [
+        "microphase",
         "source",
         "participant_type",
         "meta_order_id",
@@ -218,6 +219,10 @@ def test_run_returns_bundle_with_labeled_event_history() -> None:
         "impact_residue",
         "regime_dwell",
         "inventory_pressure",
+        "flow_toxicity",
+        "maker_stress",
+        "quote_revision_wave",
+        "refill_pressure",
         "visible_levels_bid",
         "visible_levels_ask",
     ]
@@ -245,25 +250,25 @@ def test_book_invariants_hold_over_random_run() -> None:
             "balanced",
             101,
             18,
-            "4fe6b122f870c4074de0f3d796c5a6afda246b2a12e53fd6f509d4ad9c4041ba",
-            "beb589fd795de1b34aa8d34ba08ad6ea080efd90a898dda14fc7c3fd021e641c",
-            "504672123f562c8f5bb23caf6bb1b7fbd698c56dc2e6d8a2494f2e139e2be143",
+            "95cb82d2cbab0854de2827d4341e4e9f62dc95e655736b36b9c7b320fb218228",
+            "915ad5a426ff70d805e5c869d5aee50e03761db7a253d8d04bba8039f1a1284d",
+            "e994f8a6b72a9425b646684f276437e71d5195dccd9cb3f56793473477c7b43f",
         ),
         (
             "trend",
             202,
             18,
-            "e6537cb1d8be3d07fbc370d40f3de9e1445f95fe18d7235ba4cd411510e73fff",
-            "4971126915b71c2e1fca9fc2bd3c0c217bda01d8dcceafa732dcd928327108e0",
-            "a088aad900f1569f06f0ecf6fbeb7cf8388dce662dc72b34589affad4295c978",
+            "c816abba07c77d9ed7f477b7d555870945a8e1e7cf2bcc76e3cea6a293f4d1b3",
+            "0e9014a8ce89f4c4edc7cb4963954c5c387002ad643fcd442493f6c4fa43da97",
+            "faa2bd20bbeff656d4168254246296b832e3ed7694a98cb0011b57bb5b133f52",
         ),
         (
             "volatile",
             303,
             18,
-            "2c1834808159a5a12fc168f408932f2b4e4e5f6ec08294bddfcdc93415ddf2ac",
-            "36c3fd75d944920c19e0220d8b2463908415e06ec97da53a43773aba64cd768e",
-            "507c93b697398724ea9e94a110234d928a83afbe121e63f17f59443aaaa3b67f",
+            "17ed2713f9fa9031f1294ec4a788a6631ced1d87293b3b435f08b5da0b30f382",
+            "0bc968bc758d09c9269e3d88ee1291020b0ace8694da0b085c656213651bce17",
+            "8a28eb06d8fc46fa0332940c58c8d27df618b6fb3add443f479a213d9a8e37b8",
         ),
     ],
 )

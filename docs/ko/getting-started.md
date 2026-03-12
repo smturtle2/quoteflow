@@ -8,7 +8,7 @@
 pip install orderwave
 ```
 
-개발 환경 설치:
+개발용 설치:
 
 ```bash
 pip install -e .[dev]
@@ -28,7 +28,7 @@ events = market.get_labeled_event_history()
 figure = market.plot()
 ```
 
-compact history와 overview/book plot만 필요한 장기 실행이라면:
+장기 실행에서 compact history와 plotting만 필요하다면:
 
 ```python
 fast_market = Market(seed=7, preset="balanced", logging_mode="history_only")
@@ -52,16 +52,23 @@ Market(
 )
 ```
 
-- `init_price`: nearest tick으로 스냅되는 초기 기준 가격
-- `tick_size`: 내부 호가장의 가격 단위
-- `levels`: `get()`이 반환하는 visible depth이자 기본 plot depth
-- `seed`: 재현 가능한 난수 시드
+- `init_price`: 초기 기준 가격. 가장 가까운 tick으로 스냅됩니다
+- `tick_size`: 호가 단위
+- `levels`: `get()`이 반환하는 visible depth 수이자 plot 기본 depth
+- `seed`: deterministic random seed
 - `config`: `dict` 또는 `orderwave.config.MarketConfig`
-- `preset`: 가장 자주 쓰는 preset 선택용 shortcut
+- `preset`: preset 선택 shortcut
 - `logging_mode`: `config["logging_mode"]` shortcut
 - `liquidity_backstop`: `config["liquidity_backstop"]` shortcut
-- `config["logging_mode"]`: `"full"` 또는 `"history_only"`
-- `config["liquidity_backstop"]`: `"always"`(기본값), `"on_empty"`, `"off"`
+
+## 엔진이 시뮬레이션하는 것
+
+- per-order FIFO가 아닌 aggregate visible depth
+- 참가자 조건부 `limit`, `market`, `cancel` flow
+- `calm`, `directional`, `stressed` regime
+- session phase와 내부 microphase 시간구조
+- aggressive burst 전에 나타나는 structural pre-withdrawal과 depletion 뒤 passive refill
+- latent stress diagnostics: `flow_toxicity`, `maker_stress`, `quote_revision_wave`, `refill_pressure`
 
 ## 내장 플롯
 
@@ -71,38 +78,26 @@ book = market.plot_book()
 diagnostics = market.plot_diagnostics()
 ```
 
-- `plot()`은 가격, 스프레드, 체결 강도, signed visible-book heatmap을 렌더링합니다
-- `plot_book()`은 현재 order book을 실제 가격축으로 렌더링합니다
-- `plot_diagnostics()`는 session profile, market-flow excitation, imbalance lead, spread-volatility coupling, resiliency, regime/shock occupancy를 렌더링합니다
-- `plot_diagnostics()`는 `logging_mode="full"`에서만 동작합니다
-
-모든 plotting 메서드는 `matplotlib.figure.Figure`를 반환합니다. 저장이나 표시 시점은 사용자가 직접 제어합니다.
+- `plot()`은 가격, 스프레드, 체결 강도, signed visible-book heatmap을 렌더합니다
+- `plot_book()`은 현재 order book을 실제 가격축으로 렌더합니다
+- `plot_diagnostics()`는 session profile, imbalance lead, market-flow excitation, spread-volatility coupling, depletion resiliency, regime/shock occupancy, microphase stress profile, revision/refill pressure를 렌더합니다
+- `plot_diagnostics()`는 `logging_mode="full"`이 필요합니다
 
 ## Preset
 
-- `balanced`: 기본값, 비교적 균형 잡힌 흐름과 스프레드 성향
-- `trend`: 방향성과 fair-value 압력이 더 강함
-- `volatile`: 스프레드 확대, 취소, 공격 주문 압력이 더 강함
+- `balanced`: 더 부드러운 refill, 중간 수준의 directional pressure, 낮은 stress persistence
+- `trend`: stronger directional dwell과 meta-order persistence
+- `volatile`: 더 무거운 cancel/revision pressure, 넓은 spread tail, 느린 refill recovery
 
-## Snapshot 동작
+## 고급 점검
 
-`get()`이 반환하는 현재 상태는 의도적으로 compact합니다.
-
-- `mid_price`는 최우선 bid/ask를 반영합니다
-- `last_price`는 실제 체결 때만 갱신됩니다
-- `day`, `session_step`, `session_phase`는 synthetic session clock을 보여줍니다
-- `trade_strength`는 대칭형 `[-1, 1]` signed flow 지표입니다
-- `bids`, `asks`는 최대 `levels`개의 visible price level을 담습니다
-
-## 고급 검증
-
-- `get_event_history()`는 실제 적용된 event stream만 반환합니다
-- `get_debug_history()`는 같은 `step`, `event_idx` 키로 participant type, meta-order progress, burst state, shock state를 반환합니다
-- `get_labeled_event_history()`는 수동 `merge(...)` 없이 event/debug join 결과를 반환합니다
-- `run()`은 typed snapshot과 사용 가능한 테이블을 묶은 `SimulationResult`를 반환합니다
-- `history_only` 모드는 `get_history()`, `plot()`, `plot_book()`은 유지하지만 `get_event_history()`, `get_debug_history()`, `plot_diagnostics()`는 비활성화합니다
-- 기본값 `liquidity_backstop="on_empty"`는 한쪽 호가가 사라진 경우만 복구하고 매 step마다 최소 visible depth를 강제로 채우지는 않습니다
+- `get_event_history()`는 적용된 `limit`, `market`, `cancel` 이벤트를 반환합니다
+- `get_debug_history()`는 event-aligned latent label과 stress field를 반환합니다
+- `get_labeled_event_history()`는 event/debug joined table을 반환합니다
+- `run()`은 typed snapshot과 available tables를 묶은 `SimulationResult`를 반환합니다
+- `history_only` 모드는 `get_history()`, `plot()`, `plot_book()`만 유지하고 event/debug API와 diagnostics를 끕니다
 
 ## 재현성
 
-시뮬레이터는 생성 시점의 NumPy random generator를 사용합니다. 같은 인자와 같은 seed로 만든 두 시장은 같은 경로를 생성해야 합니다.
+시뮬레이터는 생성 시점의 NumPy random generator seed를 사용합니다.
+같은 인자와 seed로 생성한 두 `Market`은 같은 path, event log, debug history를 만들어야 합니다.

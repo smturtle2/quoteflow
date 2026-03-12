@@ -53,6 +53,9 @@ def score_limit_levels(
             continue
 
         distance = 0.0 if level < 0 else float(level)
+        level_refill = book.level_refill_propensity(side, target_tick)
+        level_revision = book.level_reprice_pressure(side, target_tick)
+        level_toxicity = book.level_toxicity(side, target_tick)
         hump = -((distance - shape["hump_center"]) ** 2) / (2.0 * max(shape["hump_sigma"], 0.5) ** 2)
         wall = -((distance - shape["wall_center"]) ** 2) / (2.0 * max(shape["wall_sigma"], 0.7) ** 2)
         score = shape["intercept"]
@@ -66,6 +69,9 @@ def score_limit_levels(
         score += params.regimes[regime].limit_offset * profile["limit_bias"]
         score -= params.shape.stale_penalty * min(book.level_age(side, target_tick) / 10.0, 1.5)
         score -= params.shape.gap_penalty * max(distance - 4.0, 0.0)
+        score += 0.22 * level_refill * math.exp(-distance / 1.4)
+        score -= 0.18 * level_revision * math.exp(-distance / 1.25)
+        score -= 0.12 * level_toxicity * math.exp(-distance / 1.35)
 
         if context is not None:
             same_deficit = context.best_depth_deficit_bid if side == "bid" else context.best_depth_deficit_ask
@@ -75,7 +81,9 @@ def score_limit_levels(
             score += 0.45 * replenish_bonus * profile["replenish_weight"]
             score -= pressure_penalty
             score += 0.12 * context.recovery_pressure * math.exp(-distance / 1.4)
+            score += 0.08 * context.refill_pressure * math.exp(-distance / 1.8)
             score -= 0.08 * context.passive_withdrawal * math.exp(-distance / 1.2)
+            score -= 0.06 * context.maker_stress * math.exp(-distance / 1.5)
             score += 0.06 * max(side_sign * context.inventory_pressure, 0.0) * math.exp(-distance / 1.8)
 
             if context.shock is not None:
@@ -140,7 +148,9 @@ def _aggregate_limit_side_weight(
     log_weight += 0.12 * same_deficit
     log_weight += 0.05 * thinness
     log_weight += 0.08 * context.recovery_pressure
+    log_weight += 0.06 * context.refill_pressure
     log_weight -= 0.06 * context.passive_withdrawal
+    log_weight -= 0.05 * context.maker_stress
     log_weight += side_sign * signed_pressure
     log_weight -= 0.04 * context.spread_excess
     log_weight += 0.05 * max(side_sign * context.inventory_pressure, 0.0)
@@ -185,7 +195,10 @@ def _aggregate_market_side_weight(
     log_weight += 0.08 * context.hidden_vol
     log_weight -= 0.14 * max(features.spread_ticks - 1, 0)
     log_weight += 0.08 * context.impact_residue
+    log_weight += 0.07 * context.flow_toxicity
+    log_weight += 0.05 * context.maker_stress
     log_weight -= 0.06 * context.noise_fatigue
+    log_weight -= 0.04 * context.refill_pressure
     log_weight += 0.05 * max(sign * context.inventory_pressure, 0.0)
 
     meta_order = context.meta_orders[side]
@@ -228,6 +241,8 @@ def _aggregate_cancel_side_weight(
     log_weight += 0.05 * (context.excitation["cancel_ask_near"] if side == "ask" else context.excitation["cancel_bid_near"])
     log_weight += 0.06 * context.drought_age
     log_weight += 0.04 * context.passive_withdrawal
+    log_weight += 0.08 * context.quote_revision_pressure
+    log_weight += 0.05 * context.maker_stress
 
     if context.shock is not None:
         if context.shock.name == "liquidity_drought" and context.shock.side == side:
@@ -270,7 +285,9 @@ def _dynamic_shape_profile(
         wall += 0.35 * spread_excess
         inside_bonus += 0.12 * same_deficit
         intercept += 0.08 * context.recovery_pressure
+        intercept += 0.06 * context.refill_pressure
         intercept -= 0.06 * context.passive_withdrawal
+        intercept -= 0.04 * context.maker_stress
         inside_bonus += 0.05 * max(side_sign * context.inventory_pressure, 0.0)
 
         meta_order = context.meta_orders["buy" if side == "bid" else "sell"]
@@ -294,7 +311,15 @@ def _dynamic_shape_profile(
                     inside_bonus -= 0.1 * context.shock.intensity
 
         phase_adjustment = {"open": 0.12, "mid": -0.04, "close": 0.08}[context.session_phase]
+        microphase_adjustment = {
+            "open_release": 0.08,
+            "morning_trend": 0.03,
+            "midday_lull": -0.08,
+            "power_hour": 0.02,
+            "closing_imbalance": 0.1,
+        }[context.microphase]
         slope += phase_adjustment
+        slope += microphase_adjustment
         curvature += 0.02 * context.hidden_vol
         intercept += 0.02 * side_sign * fair_signal * profile["directional_weight"]
         intercept += 0.015 * side_sign * flow_signal * profile["directional_weight"]
@@ -333,9 +358,15 @@ def _cancel_level_weight(
     adverse = max(sign * fair_signal, 0.0) + 0.35 * max(sign * flow_signal, 0.0)
     near_best_bonus = math.exp(-depth_index / 1.2)
     stale = min(book.level_age(side, tick) / 12.0, 2.0)
+    revision = book.level_reprice_pressure(side, tick)
+    refill = book.level_refill_propensity(side, tick)
+    toxicity = book.level_toxicity(side, tick)
     profile = _participant_profile(participant_type)
     weight = 0.35 + (0.22 * stale) + (0.18 * profile["cancel_bias"]) + (0.18 * near_best_bonus) + (0.1 * adverse)
     weight += 0.03 * math.log1p(qty)
+    weight += 0.18 * revision
+    weight += 0.1 * toxicity
+    weight -= 0.08 * refill
 
     if context.shock is not None and context.shock.name == "liquidity_drought" and context.shock.side == side:
         weight += 0.3 * context.shock.intensity * near_best_bonus
@@ -375,11 +406,13 @@ def _limit_intensity(
     log_lambda += 0.14 * thinness
     log_lambda += 0.12 * same_limit_trace * config.excitation_scale
     log_lambda += 0.08 * market_trace * config.excitation_scale
+    log_lambda += 0.08 * context.refill_pressure
     log_lambda += 0.06 * side_sign * fair_signal * profile["directional_weight"]
     log_lambda += 0.04 * side_sign * flow_signal * profile["directional_weight"]
     log_lambda += 0.03 * side_sign * imbalance_signal * profile["directional_weight"]
     log_lambda -= 0.06 * context.hidden_vol
     log_lambda -= 0.1 * context.spread_excess
+    log_lambda -= 0.08 * context.maker_stress
 
     if context.shock is not None:
         if context.shock.name == "liquidity_drought" and context.shock.side == side:
@@ -430,6 +463,8 @@ def _market_intensity(
     log_lambda += 0.16 * max(sign * imbalance_signal, 0.0) * profile["directional_weight"]
     log_lambda += params.flow.market_thin_weight * opposite_thinness
     log_lambda += 0.12 * context.hidden_vol
+    log_lambda += 0.12 * context.flow_toxicity
+    log_lambda += 0.05 * context.maker_stress
     log_lambda += 0.28 * same_market_trace * config.excitation_scale
     log_lambda -= 0.16 * opposite_market_trace * config.excitation_scale
     log_lambda += 0.09 * cancel_trace * config.excitation_scale
@@ -484,6 +519,8 @@ def _cancel_intensity(
     log_lambda += 0.14 * cancel_trace * config.excitation_scale
     log_lambda += 0.08 * opposite_market_trace * config.excitation_scale
     log_lambda += 0.08 * depth_factor
+    log_lambda += 0.12 * context.quote_revision_pressure
+    log_lambda += 0.08 * context.maker_stress
 
     if context.shock is not None:
         if context.shock.name == "liquidity_drought" and context.shock.side == side:

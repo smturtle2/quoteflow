@@ -90,6 +90,10 @@ def compute_run_metrics(
     shock_decay_ratio = shock_decay_metrics(history, debug)
     directional_regime_share = float((history["regime"] == "directional").mean()) if not history.empty else 0.0
     stressed_regime_share = float((history["regime"] == "stressed").mean()) if not history.empty else 0.0
+    quote_revision_burstiness, revision_spread_ratio, refill_recovery_ratio = revision_wave_metrics(history, debug)
+    maker_stress_mean = safe_mean(debug["maker_stress"]) if "maker_stress" in debug else 0.0
+    flow_toxicity_mean = safe_mean(debug["flow_toxicity"]) if "flow_toxicity" in debug else 0.0
+    refill_pressure_mean = safe_mean(debug["refill_pressure"]) if "refill_pressure" in debug else 0.0
 
     return {
         "stage": stage,
@@ -143,6 +147,7 @@ def compute_run_metrics(
         "phase_close_realized_vol": phase_metrics["phase_close_realized_vol"],
         "phase_spread_range": phase_metrics["phase_spread_range"],
         "phase_fill_range": phase_metrics["phase_fill_range"],
+        "open_close_activity_ratio": phase_metrics["open_close_activity_ratio"],
         "shock_abs_return": float(shock_abs_return),
         "calm_abs_return": float(calm_abs_return),
         "shock_to_calm_ratio": float(shock_abs_return / max(calm_abs_return, EPSILON)),
@@ -170,6 +175,12 @@ def compute_run_metrics(
         "impact_residue": float(impact_residue),
         "regime_dwell": float(regime_dwell),
         "depletion_recovery_half_life": float(depletion_recovery_half_life),
+        "maker_stress_mean": float(maker_stress_mean),
+        "flow_toxicity_mean": float(flow_toxicity_mean),
+        "refill_pressure_mean": float(refill_pressure_mean),
+        "quote_revision_burstiness": float(quote_revision_burstiness),
+        "revision_spread_ratio": float(revision_spread_ratio),
+        "refill_recovery_ratio": float(refill_recovery_ratio),
         "steps_per_second": float(run.requested_steps / max(run.elapsed_seconds, EPSILON)),
         "events_logged_per_second": float(logged_event_count / max(run.elapsed_seconds, EPSILON)),
         "peak_memory_mb": float(run.peak_memory_mb),
@@ -239,6 +250,10 @@ def phase_metrics_by_session(history: pd.DataFrame, events: pd.DataFrame, market
         fills.append(total_fill_qty)
     rows["phase_spread_range"] = float(max(spreads) - min(spreads)) if spreads else 0.0
     rows["phase_fill_range"] = float(max(fills) - min(fills)) if fills else 0.0
+    mid_fill = rows["phase_mid_total_fill_qty"]
+    rows["open_close_activity_ratio"] = float(
+        (rows["phase_open_total_fill_qty"] + rows["phase_close_total_fill_qty"]) / max(2.0 * mid_fill, EPSILON)
+    )
     return rows
 
 
@@ -361,6 +376,37 @@ def shock_decay_metrics(history: pd.DataFrame, debug: pd.DataFrame) -> float:
     return float(safe_mean(decay_values))
 
 
+def revision_wave_metrics(history: pd.DataFrame, debug: pd.DataFrame) -> tuple[float, float, float]:
+    required = {"quote_revision_wave", "refill_pressure"}
+    if history.empty or debug.empty or not required <= set(debug.columns):
+        return 0.0, 0.0, 0.0
+
+    per_step = debug.groupby("step").agg(
+        quote_revision_wave=("quote_revision_wave", "max"),
+        refill_pressure=("refill_pressure", "mean"),
+    )
+    joined = history.set_index("step").join(per_step, how="left")
+    joined["quote_revision_wave"] = joined["quote_revision_wave"].fillna(False).astype(bool)
+    joined["refill_pressure"] = joined["refill_pressure"].ffill().bfill().fillna(0.0)
+    revision_steps = joined["quote_revision_wave"].astype(float)
+    burstiness = safe_autocorr(revision_steps, lag=1)
+
+    revision_spread = safe_mean(joined.loc[joined["quote_revision_wave"], "spread"])
+    calm_spread = safe_mean(joined.loc[~joined["quote_revision_wave"], "spread"])
+    spread_ratio = float(revision_spread / max(calm_spread, EPSILON))
+
+    total_depth = joined["top_n_bid_qty"].astype(float) + joined["top_n_ask_qty"].astype(float)
+    refill_ratios: list[float] = []
+    wave_flags = joined["quote_revision_wave"].to_numpy(dtype=bool)
+    depth_values = total_depth.to_numpy(dtype=float)
+    for index, active in enumerate(wave_flags):
+        if not active:
+            continue
+        future_index = min(index + 3, len(depth_values) - 1)
+        refill_ratios.append(depth_values[future_index] / max(depth_values[index], EPSILON))
+    return float(burstiness), float(spread_ratio), float(safe_mean(refill_ratios))
+
+
 __all__ = [
     "analysis_debug",
     "analysis_events",
@@ -373,5 +419,6 @@ __all__ = [
     "per_step_event_count",
     "phase_metrics_by_session",
     "regime_switch_rate",
+    "revision_wave_metrics",
     "shock_vs_calm_abs_return",
 ]

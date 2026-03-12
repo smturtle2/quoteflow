@@ -91,8 +91,10 @@ def evaluate_validation_results(
         stylized_checks["phase_structure"],
         stylized_checks["shock_response"],
         stylized_checks["impact_decay"],
+        stylized_checks["quote_revision"],
+        stylized_checks["refill_response"],
     )
-    stylized_ok = bool(sum(bool(value) for value in stylized_checks.values()) >= 7 and all(mandatory_stylized))
+    stylized_ok = bool(sum(bool(value) for value in stylized_checks.values()) >= 8 and all(mandatory_stylized))
 
     sensitivity_checks = evaluate_sensitivity_summary(sensitivity_summary)
     core_passes = sum(int(sensitivity_checks.get(knob, False)) for knob in CORE_SENSITIVITY_KNOBS)
@@ -204,12 +206,15 @@ def evaluate_stylized_facts(baseline_summary: pd.DataFrame) -> dict[str, bool]:
             "spread_variation": False,
             "imbalance_signal": False,
             "phase_structure": False,
+            "open_close_activity": False,
             "event_clustering": False,
             "shock_response": False,
             "impact_decay": False,
             "depletion_recovery": False,
             "regime_persistence": False,
             "meta_directionality": False,
+            "quote_revision": False,
+            "refill_response": False,
         }
 
     abs_return_acf1 = _summary_series(baseline_summary, "abs_return_acf1_mean")
@@ -217,6 +222,7 @@ def evaluate_stylized_facts(baseline_summary: pd.DataFrame) -> dict[str, bool]:
     imbalance_signal = _summary_series(baseline_summary, "imbalance_next_mid_return_corr_mean")
     phase_spread_range = _summary_series(baseline_summary, "phase_spread_range_mean")
     phase_fill_range = _summary_series(baseline_summary, "phase_fill_range_mean")
+    open_close_activity = _summary_series(baseline_summary, "open_close_activity_ratio_mean")
     buy_event_acf1 = _summary_series(baseline_summary, "buy_event_count_acf1_mean")
     cancel_event_acf1 = _summary_series(baseline_summary, "cancel_event_count_acf1_mean")
     shock_ratio = _summary_series(baseline_summary, "shock_to_calm_ratio_mean")
@@ -225,6 +231,9 @@ def evaluate_stylized_facts(baseline_summary: pd.DataFrame) -> dict[str, bool]:
     regime_dwell = _summary_series(baseline_summary, "regime_dwell_mean")
     meta_active = _summary_series(baseline_summary, "meta_active_directional_ratio_mean")
     meta_inactive = _summary_series(baseline_summary, "meta_inactive_directional_ratio_mean")
+    quote_revision_burst = _summary_series(baseline_summary, "quote_revision_burstiness_mean")
+    revision_spread_ratio = _summary_series(baseline_summary, "revision_spread_ratio_mean")
+    refill_recovery_ratio = _summary_series(baseline_summary, "refill_recovery_ratio_mean")
 
     return {
         "abs_return_clustering": bool((abs_return_acf1 > 0.0).all()),
@@ -234,6 +243,7 @@ def evaluate_stylized_facts(baseline_summary: pd.DataFrame) -> dict[str, bool]:
             (phase_spread_range > 0.001).any()
             or (phase_fill_range > 1.0).any()
         ),
+        "open_close_activity": bool((open_close_activity > 1.05).sum() >= 2),
         "event_clustering": bool(
             (
                 (buy_event_acf1 > 0.0)
@@ -254,6 +264,8 @@ def evaluate_stylized_facts(baseline_summary: pd.DataFrame) -> dict[str, bool]:
             (meta_active > meta_inactive).sum()
             >= 2
         ),
+        "quote_revision": bool(((quote_revision_burst > 0.05) | (revision_spread_ratio > 1.02)).sum() >= 2),
+        "refill_response": bool(((refill_recovery_ratio > 0.9) & (refill_recovery_ratio < 1.35)).sum() >= 2),
     }
 
 

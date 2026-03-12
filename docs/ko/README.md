@@ -17,11 +17,18 @@
 - [예제](https://github.com/smturtle2/quoteflow/blob/main/docs/ko/examples.md)
 - [릴리스](https://github.com/smturtle2/quoteflow/blob/main/docs/ko/releasing.md)
 
+## 현재 엔진에서 달라진 점
+
+- 내부 microphase가 open release, midday lull, power hour, closing imbalance 같은 시간구조를 만듭니다
+- event cycle은 market-first 실행, adverse quote revision, passive refill을 강조합니다
+- debug history에 `microphase`, `flow_toxicity`, `maker_stress`, `quote_revision_wave`, `refill_pressure`가 추가됐습니다
+- diagnostics는 microphase와 revision/refill pressure 패널을 추가로 렌더합니다
+
 ## 내장 시각화
 
 - `Market.plot()`으로 메인 overview figure 렌더
 - `Market.plot_book()`으로 현재 order book을 실제 가격축으로 렌더
-- `Market.plot_diagnostics()`로 session, excitation, imbalance, resiliency, regime/shock 진단 렌더
+- `Market.plot_diagnostics()`로 session, excitation, imbalance, resiliency, regime/shock, microphase, revision/refill 진단 렌더
 
 ![Current book](../assets/orderwave-built-in-current-book.png)
 

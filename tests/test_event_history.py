@@ -74,6 +74,20 @@ def test_debug_history_aligns_one_to_one_with_event_history() -> None:
     assert len(joined) == len(events)
     assert joined["session_phase_x"].equals(joined["session_phase_y"])
     assert set(debug["session_phase"].unique()) <= {"open", "mid", "close"}
+    assert {
+        "microphase",
+        "flow_toxicity",
+        "maker_stress",
+        "quote_revision_wave",
+        "refill_pressure",
+    } <= set(debug.columns)
+    assert set(debug["microphase"].dropna().unique()) <= {
+        "open_release",
+        "morning_trend",
+        "midday_lull",
+        "power_hour",
+        "closing_imbalance",
+    }
 
 
 def test_labeled_event_history_helper_matches_manual_merge() -> None:
@@ -164,14 +178,17 @@ def test_balanced_preset_statistical_guardrails_hold() -> None:
     market_sell_count = int((first_500_market["side"] == "sell").sum())
     market_buy_share = market_buy_count / max(market_buy_count + market_sell_count, 1)
     events_per_step = len(events) / 2000.0
+    open_close_activity_ratio = float((phase_fill["open"] + phase_fill["close"]) / max(2.0 * phase_fill["mid"], 1e-9))
+    revision_share = float(debug["quote_revision_wave"].mean())
 
     assert 0.0 < corr < 0.25
     assert acf_1 > 0.0
     assert history["spread"].nunique() >= 3
-    assert events_per_step < 40.0
+    assert events_per_step < 45.0
     assert history["session_phase"].nunique() == 3
     assert (phase_fill.max() - phase_fill.min()) > 2.0
     assert (phase_spread.max() - phase_spread.min()) > 0.001
+    assert open_close_activity_ratio > 1.0
     assert 0.35 < market_buy_share < 0.65
     assert market_buy_count > 100
     assert market_sell_count > 100
@@ -179,3 +196,6 @@ def test_balanced_preset_statistical_guardrails_hold() -> None:
     assert cancel_count_acf > 0.05
     assert meta_directionality >= 1.0
     assert shock_abs_ret > calm_abs_ret
+    assert revision_share > 0.01
+    assert revision_share < 0.2
+    assert float(debug["refill_pressure"].mean()) > 0.0

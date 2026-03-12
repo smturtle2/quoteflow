@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -13,7 +14,9 @@ from orderwave._model.events import (
     is_cancel_event,
     is_limit_event,
     is_market_event,
+    make_cancel_event,
     make_cancel_log_record,
+    make_limit_event,
     make_limit_log_record,
     make_market_log_record,
 )
@@ -26,6 +29,7 @@ from orderwave._model.latent import (
     decay_excitation,
     derive_burst_state,
     meta_order_progress,
+    resolve_microphase,
     resolve_session_phase,
     sample_next_regime,
     seasonality_multipliers,
@@ -86,20 +90,24 @@ class _MarketEngine:
 
         self._advance_session_clock()
         market._book.increment_staleness()
-        previous_regime = market._regime
-        market._regime = sample_next_regime(
-            market._regime,
-            rng=market._rng,
-            config=market.config,
-            params=market._params,
-        )
-        market._regime_dwell = (market._regime_dwell + 1) if market._regime == previous_regime else 1
         market._excitation = decay_excitation(
             market._excitation,
             config=market.config,
             params=market._params,
         )
         market._burst_state = derive_burst_state(market._excitation)
+
+        previous_regime = market._regime
+        market._regime = sample_next_regime(
+            market._regime,
+            regime_dwell=market._regime_dwell,
+            features=previous_features,
+            context=self._current_context(),
+            rng=market._rng,
+            config=market.config,
+            params=market._params,
+        )
+        market._regime_dwell = (market._regime_dwell + 1) if market._regime == previous_regime else 1
 
         latent_context = self._current_context()
         market._directional_anchor = advance_directional_anchor(
@@ -182,29 +190,29 @@ class _MarketEngine:
         return sampled_events
 
     def _apply_step_events(self, sampled_events: list[StepEvent]) -> _StepOutcome:
-        step_buy_volume = 0.0
-        step_sell_volume = 0.0
-        event_idx = 0
-        market_fill_count = 0
-        for event in sampled_events:
-            applied = self._apply_event(event)
-            if applied is None:
-                continue
-            self._record_applied_event(event_idx=event_idx, record=applied.record, event_state=applied.event_state)
-            self._record_debug_event(event_idx, event)
-            if applied.side == "buy":
-                step_buy_volume += applied.fill_qty
-            elif applied.side == "sell":
-                step_sell_volume += applied.fill_qty
-            if applied.record["event_type"] == "market" and applied.fill_qty > 0.0:
-                market_fill_count += 1
-            event_idx += 1
+        pre_events = self._build_pre_withdrawal_events()
+        event_idx, pre_buy, pre_sell, pre_market_fills = self._drain_events(
+            pre_events,
+            start_event_idx=0,
+            quote_revision_wave=True,
+        )
+        event_idx, sampled_buy, sampled_sell, sampled_market_fills = self._drain_events(
+            sampled_events,
+            start_event_idx=event_idx,
+            quote_revision_wave=False,
+        )
+        post_events = self._build_post_refill_events()
+        event_idx, post_buy, post_sell, post_market_fills = self._drain_events(
+            post_events,
+            start_event_idx=event_idx,
+            quote_revision_wave=False,
+        )
         return _StepOutcome(
-            sampled_event_count=len(sampled_events),
+            sampled_event_count=len(pre_events) + len(sampled_events) + len(post_events),
             applied_event_count=event_idx,
-            step_buy_volume=step_buy_volume,
-            step_sell_volume=step_sell_volume,
-            market_fill_count=market_fill_count,
+            step_buy_volume=pre_buy + sampled_buy + post_buy,
+            step_sell_volume=pre_sell + sampled_sell + post_sell,
+            market_fill_count=pre_market_fills + sampled_market_fills + post_market_fills,
             liquidity_backstop_applied=False,
         )
 
@@ -325,6 +333,7 @@ class _MarketEngine:
             market._session_step,
             market.config.steps_per_day,
         )
+        market._microphase = resolve_microphase(market._session_progress)
         market._seasonality = seasonality_multipliers(
             market._session_phase,
             session_progress=market._session_progress,
@@ -380,6 +389,7 @@ class _MarketEngine:
         market = self._market
         return EngineContext(
             session_phase=market._session_phase,
+            microphase=market._microphase,
             session_progress=market._session_progress,
             seasonality=market._seasonality,
             hidden_vol=market._hidden_vol,
@@ -400,6 +410,10 @@ class _MarketEngine:
             inventory_pressure=market._inventory_pressure,
             passive_withdrawal=market._passive_withdrawal_bias,
             noise_fatigue=market._noise_fatigue,
+            flow_toxicity=market._flow_toxicity,
+            maker_stress=market._maker_stress,
+            quote_revision_pressure=market._quote_revision_pressure,
+            refill_pressure=market._refill_pressure,
         )
 
     def _update_after_event_state(
@@ -498,6 +512,7 @@ class _MarketEngine:
             market._day,
             market._session_step,
             market._session_phase,
+            market._microphase,
             debug_event["source"],
             debug_event["participant_type"],
             debug_event["meta_order_id"],
@@ -510,6 +525,10 @@ class _MarketEngine:
             market._impact_residue,
             market._regime_dwell,
             market._inventory_pressure,
+            market._flow_toxicity,
+            market._maker_stress,
+            market._quote_revision_wave,
+            market._refill_pressure,
             len(market._book.top_levels("bid", market.levels)),
             len(market._book.top_levels("ask", market.levels)),
         )
@@ -517,14 +536,6 @@ class _MarketEngine:
     def _event_stage_sort_key(self, event: StepEvent) -> tuple[int, int, int, int]:
         source_rank = {"shock": 0, "meta_order": 1, "organic": 2}.get(event["source"], 3)
         participant_type = event["participant_type"]
-        if is_limit_event(event):
-            participant_rank = {
-                "passive_lp": 0,
-                "inventory_mm": 1,
-                "informed_meta": 2,
-                "noise_taker": 3,
-            }[participant_type]
-            return (0, participant_rank, source_rank, int(event["level"]))
         if is_market_event(event):
             participant_rank = {
                 "informed_meta": 0,
@@ -532,16 +543,24 @@ class _MarketEngine:
                 "inventory_mm": 2,
                 "passive_lp": 3,
             }[participant_type]
-            return (1, participant_rank, source_rank, 0)
-        assert is_cancel_event(event)
+            return (0, participant_rank, source_rank, 0)
+        if is_cancel_event(event):
+            participant_rank = {
+                "inventory_mm": 0,
+                "informed_meta": 1,
+                "passive_lp": 2,
+                "noise_taker": 3,
+            }[participant_type]
+            level = event["level"]
+            return (1, participant_rank, source_rank, 0 if level is None else int(level))
+        assert is_limit_event(event)
         participant_rank = {
             "inventory_mm": 0,
-            "passive_lp": 1,
-            "informed_meta": 2,
+            "informed_meta": 1,
+            "passive_lp": 2,
             "noise_taker": 3,
         }[participant_type]
-        level = event["level"]
-        return (2, participant_rank, source_rank, 0 if level is None else int(level))
+        return (2, participant_rank, source_rank, int(event["level"]))
 
     def _refresh_market_state(self, features: MarketFeatures, *, previous_mid_price: float) -> None:
         market = self._market
@@ -629,3 +648,199 @@ class _MarketEngine:
                 4.0,
             )
         )
+
+        microphase_bias = {
+            "open_release": 0.18,
+            "morning_trend": 0.1,
+            "midday_lull": -0.08,
+            "power_hour": 0.12,
+            "closing_imbalance": 0.2,
+        }[market._microphase]
+        market._flow_toxicity = float(
+            clamp(
+                (0.76 * market._flow_toxicity)
+                + (0.32 * abs(features.trade_strength))
+                + (0.16 * abs(features.signed_flow))
+                + (0.14 * thinness)
+                + (0.14 * shock_pressure)
+                + (0.1 * abs(market._directional_anchor)),
+                0.0,
+                6.0,
+            )
+        )
+        maker_stress_target = (
+            (0.34 * market._flow_toxicity)
+            + (0.24 * market._recovery_pressure)
+            + (0.17 * market._one_sided_pressure)
+            + (0.14 * market._impact_residue)
+            + (0.1 * shock_pressure)
+            + max(microphase_bias, 0.0)
+        )
+        market._maker_stress = float(
+            clamp(
+                (0.74 * market._maker_stress)
+                + (market._params.resiliency.revision_sensitivity * maker_stress_target)
+                - (0.08 * market.config.resiliency_scale),
+                0.0,
+                6.0,
+            )
+        )
+        revision_target = market._params.resiliency.withdrawal_sensitivity * (
+            (0.4 * market._maker_stress)
+            + (0.22 * market._flow_toxicity)
+            + (0.18 * market._passive_withdrawal_bias)
+            + (0.1 * shock_pressure)
+            + max(microphase_bias, 0.0)
+        )
+        market._quote_revision_pressure = float(
+            clamp((0.72 * market._quote_revision_pressure) + revision_target, 0.0, 6.0)
+        )
+        refill_target = market._params.resiliency.refill_strength * (
+            (0.42 * market._recovery_pressure)
+            + (0.18 * (market._best_depth_deficit_bid + market._best_depth_deficit_ask))
+            + (0.16 * market._one_sided_pressure)
+            + (0.08 * market._quote_revision_pressure)
+            + (0.06 * max(-microphase_bias, 0.0))
+        )
+        market._refill_pressure = float(clamp((0.7 * market._refill_pressure) + refill_target, 0.0, 6.0))
+
+    def _drain_events(
+        self,
+        events: list[StepEvent],
+        *,
+        start_event_idx: int,
+        quote_revision_wave: bool,
+    ) -> tuple[int, float, float, int]:
+        market = self._market
+        step_buy_volume = 0.0
+        step_sell_volume = 0.0
+        market_fill_count = 0
+        event_idx = start_event_idx
+        market._quote_revision_wave = quote_revision_wave
+        for event in events:
+            applied = self._apply_event(event)
+            if applied is None:
+                continue
+            self._record_applied_event(event_idx=event_idx, record=applied.record, event_state=applied.event_state)
+            self._record_debug_event(event_idx, event)
+            if applied.side == "buy":
+                step_buy_volume += applied.fill_qty
+            elif applied.side == "sell":
+                step_sell_volume += applied.fill_qty
+            if applied.record["event_type"] == "market" and applied.fill_qty > 0.0:
+                market_fill_count += 1
+            event_idx += 1
+        market._quote_revision_wave = False
+        return event_idx, step_buy_volume, step_sell_volume, market_fill_count
+
+    def _build_pre_withdrawal_events(self) -> list[StepEvent]:
+        market = self._market
+        pressure = market._quote_revision_pressure * market._params.resiliency.withdrawal_sensitivity
+        if pressure < 0.45:
+            return []
+
+        features = market._compute_features()
+        directional_pressure = self._directional_pressure(features)
+        sides: tuple[EventSide, ...]
+        if market._shock_state is not None and market._shock_state.name == "liquidity_drought" and market._shock_state.side in {
+            "bid",
+            "ask",
+        }:
+            sides = (market._shock_state.side,)
+        elif directional_pressure > 0.06:
+            sides = ("ask",)
+        elif directional_pressure < -0.06:
+            sides = ("bid",)
+        else:
+            sides = ()
+
+        events: list[StepEvent] = []
+        for side in sides:
+            levels = market._book.top_levels(side, 2)
+            for depth_index, (tick, qty) in enumerate(levels):
+                toxicity = market._book.level_toxicity(side, tick)
+                revision = market._book.level_reprice_pressure(side, tick)
+                share = (0.06 + (0.035 * pressure) + (0.025 * toxicity) + (0.02 * revision)) * math.exp(
+                    -depth_index / 1.4
+                )
+                canceled = min(qty - 1, max(0, int(round(qty * min(0.55, share)))))
+                if canceled <= 0:
+                    continue
+                events.append(
+                    make_cancel_event(
+                        side=side,
+                        level=depth_index,
+                        tick=tick,
+                        qty=canceled,
+                        source="shock" if market._shock_state is not None and market._shock_state.side == side else "organic",
+                        participant_type="inventory_mm" if depth_index == 0 else "passive_lp",
+                        meta_order_id=None,
+                        meta_order_side=None,
+                    )
+                )
+        return events
+
+    def _build_post_refill_events(self) -> list[StepEvent]:
+        market = self._market
+        refill_pressure = market._refill_pressure * market._params.resiliency.refill_strength
+        if refill_pressure < 0.35:
+            return []
+
+        features = market._compute_features()
+        directional_pressure = self._directional_pressure(features)
+        events: list[StepEvent] = []
+        for side in ("bid", "ask"):
+            side_deficit = market._best_depth_deficit_bid if side == "bid" else market._best_depth_deficit_ask
+            thinness = features.thin_bid_best if side == "bid" else features.thin_ask_best
+            visible_levels = len(market._book.top_levels(side, market._minimum_visible_levels))
+            visible_gap = max(market._minimum_visible_levels - visible_levels, 0) / max(market._minimum_visible_levels, 1)
+            if side_deficit < 0.08 and thinness < 0.12 and visible_gap <= 0.0:
+                continue
+
+            side_sign = 1.0 if side == "bid" else -1.0
+            adverse_bias = max(side_sign * directional_pressure, 0.0)
+            qty_scale = max(0.55, 1.0 - (0.08 * market._flow_toxicity) - (0.05 * adverse_bias))
+            refill_events = 1 + int(side_deficit > 0.2 or visible_gap > 0.0)
+            if market._microphase in {"power_hour", "closing_imbalance"} and side_deficit > 0.25:
+                refill_events += 1
+            for refill_index in range(refill_events):
+                improve_quote = (
+                    refill_index == 0
+                    and market._book.spread_ticks > 1
+                    and side_deficit > 0.18
+                    and market._maker_stress < 3.8
+                )
+                qty = max(
+                    1,
+                    int(
+                        round(
+                            market._fallback_liquidity_qty
+                            * (0.75 + (0.28 * refill_pressure) + (0.22 * side_deficit) + (0.18 * visible_gap))
+                            * qty_scale
+                        )
+                    ),
+                )
+                events.append(
+                    make_limit_event(
+                        side=side,
+                        level=-1 if improve_quote else min(refill_index, max(0, market.levels - 1)),
+                        qty=qty,
+                        source="organic",
+                        participant_type="inventory_mm" if refill_index == 0 else "passive_lp",
+                        meta_order_id=None,
+                        meta_order_side=None,
+                    )
+                )
+        return events
+
+    def _directional_pressure(self, features: MarketFeatures) -> float:
+        market = self._market
+        pressure = (
+            (0.46 * market._directional_anchor)
+            + (0.24 * features.signed_flow)
+            + (0.18 * features.trade_strength)
+            + (0.12 * market._inventory_pressure)
+        )
+        if market._shock_state is not None and market._shock_state.side in {"buy", "sell"}:
+            pressure += 0.18 * (1.0 if market._shock_state.side == "buy" else -1.0) * market._shock_state.intensity
+        return float(clamp(pressure, -2.0, 2.0))

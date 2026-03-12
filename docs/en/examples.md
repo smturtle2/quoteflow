@@ -32,38 +32,56 @@ book_figure.savefig("orderwave-current-book.png")
 ## Diagnostics
 
 ```python
-diagnostics = market.plot_diagnostics(max_lag=12, title="Diagnostics")
+diagnostics = market.plot_diagnostics(max_lag=12, title="Microstructure diagnostics")
 diagnostics.savefig("orderwave-diagnostics.png")
 ```
 
 ![Diagnostics snapshot](../assets/orderwave-built-in-diagnostics.png)
 
-These built-in figures are meant to answer three different questions quickly:
+The diagnostics figure now covers:
 
-- what path did the simulator generate?
-- what does the current book look like?
-- does the path show useful market-state signals?
+- session phase profile
+- depth imbalance lead
+- market-flow excitation
+- spread-volatility coupling
+- depletion resiliency
+- regime and shock occupancy
+- microphase stress profile
+- revision and refill pressure
 
 ## Event Flow Inspection
 
 ```python
-labeled_events = market.get_labeled_event_history()
-market_fills = labeled_events.loc[labeled_events["event_type"] == "market", ["step", "side", "fill_qty", "fills"]]
+labeled = market.get_labeled_event_history()
+market_fills = labeled.loc[
+    labeled["event_type"] == "market",
+    ["step", "side", "fill_qty", "participant_type", "source"],
+]
 
 print(market_fills.tail())
 ```
 
-`get_labeled_event_history()` exposes the applied event stream together with aligned participant, meta-order, and shock labels. That removes the usual event/debug merge step from the common inspection flow.
-
-## Latent Debug Inspection
+## Latent Stress Inspection
 
 ```python
-joined = market.get_labeled_event_history()
+debug = market.get_debug_history()
 
-print(joined[["step", "event_idx", "event_type", "participant_type", "meta_order_id", "shock_state"]].tail())
+print(
+    debug[
+        [
+            "step",
+            "event_idx",
+            "microphase",
+            "maker_stress",
+            "flow_toxicity",
+            "quote_revision_wave",
+            "refill_pressure",
+        ]
+    ].tail()
+)
 ```
 
-`get_debug_history()` is still available when you want the raw aligned latent table, but the joined helper is the shorter default for exploratory analysis.
+This view is useful when you want to inspect structural pre-withdrawal and passive refill behavior directly rather than inferring it from price/spread alone.
 
 ## Compact History-Only Runs
 
@@ -76,11 +94,9 @@ figure = fast_market.plot(title="Compact overview")
 figure.savefig("orderwave-history-only.png")
 ```
 
-`history_only` mode is the lighter option for long sweeps when you only need compact history, visible-book plotting, and realized-trade imbalance. In this mode, `get_event_history()`, `get_debug_history()`, and `plot_diagnostics()` intentionally raise `RuntimeError`.
+`history_only` mode is the lighter option for long sweeps when you only need compact history, visible-book plotting, and realized-trade imbalance.
 
 ## CLI Example
-
-The repository includes [`examples/plot_market_heatmap.py`](https://github.com/smturtle2/quoteflow/blob/main/examples/plot_market_heatmap.py), which calls `Market.plot()` directly.
 
 ```bash
 python -m examples.plot_market_heatmap --steps 2000 --preset trend --output artifacts/orderwave_heatmap.png
@@ -88,47 +104,17 @@ python -m examples.plot_market_heatmap --steps 2000 --preset trend --output arti
 
 ## Performance Measurement
 
-Use the single performance script when you want a quick throughput check, a floor check, and a `full` vs `history_only` comparison after engine changes.
-
 ```bash
 python -m scripts.measure_performance --preset balanced --seeds 20 --steps 20000 --outdir artifacts/performance
 ```
 
-The script writes:
-
-- `performance_metrics.csv`
-- `performance_summary.csv`
-- `performance_logging_modes.csv`
-- `performance_summary.md`
-
 ## Validation Sweep
-
-Use the validation runner when you want the market-state validation pipeline rather than a single throughput snapshot.
 
 ```bash
 python -m scripts.validate_orderwave --profile quality_regression --jobs 4 --outdir artifacts/validation
 ```
 
-The runner writes:
-
-- `validation_summary.md`
-- `run_metrics.csv`
-- `preset_summary.csv`
-- `sensitivity_summary.csv`
-- `invariant_failures.csv`
-- `acceptance_decision.md`
-- `diagnostics_<preset>_<seed>.png` when diagnostics rendering is enabled
-
-Release builds run a dedicated `Release Validation` job that executes the shorter `--profile release_smoke` regression and compares it against `tests/golden/validation_release_baseline.json` before publish.
-That smoke profile is intentionally tiny so the CI release gate stays fast.
-
-The current engine roadmap is broader market-state fidelity: preset separation, time structure, sensitivity control, and validation quality move together.
-
-## Preset Comparison
-
-![Preset comparison](../assets/orderwave-built-in-presets.png)
-
-Preset comparison remains a docs-only figure generated from the same public simulation API with different presets.
+The validation pipeline checks reproducibility, preset separation, stylized structure, sensitivity direction, and soak behavior for the current aggregate market-state model.
 
 ## Regenerating Docs Images
 
