@@ -2,7 +2,7 @@
 
 Compact aggregate order-book simulation for Python, with readable built-in heatmaps.
 
-`orderwave` keeps the runtime model small: a sparse bid/ask book, bounded mean-reverting fair value, and a regime-aware queue-reactive liquidity kernel that drives buy/sell flow clustering, side-specific cancel pressure, refill lag, execution episodes, and gap recovery without reintroducing the older heuristic stack.
+`orderwave` keeps the runtime model small: a sparse bid/ask book, bounded mean-reverting fair value, and a latent-liquidity Cox kernel that reveals, cancels, and sweeps aggregate depth from a stochastic hidden state instead of a large hand-written heuristic tree.
 
 ![Overview](docs/assets/orderwave-built-in-overview.png)
 
@@ -77,11 +77,10 @@ History columns:
 
 ## Model
 
-- Fair price follows a bounded mean-reverting Gaussian process with short-memory flow feedback.
-- Buy/sell market flow, bid/ask cancel flow, and bid/ask limit flow all use state-dependent Poisson intensities rather than one shared shuffled event pool.
-- The internal kernel tracks buy/sell flow impulse, side-specific cancel pressure, side-specific refill lag, gap pressure, hidden liquidity regime, and persistent execution pressure.
-- Limit placement is split into join, touch refill, gap fill, connected shelf, and isolated wall families so the book can hold holes and recover instead of being perfectly refilled every step.
-- Repair is safety-only: it prevents one-sided or crossed books, but it no longer backfills every visible level.
+- Fair price follows a bounded mean-reverting Gaussian process with weak flow coupling.
+- Hidden liquidity evolves as a stochastic latent state: total liquidity, side skew, flow bias, and depth-cell fields move first, then visible limit/cancel/market flow is sampled from those states through Cox-Poisson style intensities.
+- Visible depth is not rebuilt with symptom-specific rules. Thin-side recovery comes from shortage-aware reveal budgets, connected queue scoring, and smooth cancel thinning rather than hard visible-level floors.
+- Repair is safety-only: it prevents one-sided or crossed books and enforces the spread cap, but it does not cosmetically repad every visible rank.
 
 ## Realism Profiling
 
@@ -91,7 +90,7 @@ Profile generic microstructure behavior with:
 python -m scripts.profile_realism --steps 5000
 ```
 
-The profiler reports spread/impact persistence, trade-sign autocorrelation, top-rank gap frequency, per-rank depth shape, shock-side cancel/refill skew, hidden regime occupancy, and connected-vs-isolated deep liquidity structure.
+The profiler reports spread/impact persistence, trade-sign autocorrelation, top-rank gap frequency, per-rank depth shape, visible/full-book one-sidedness, near-touch connectivity, and pair-distribution entropy.
 
 ## Documentation Assets
 

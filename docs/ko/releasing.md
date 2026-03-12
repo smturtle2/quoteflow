@@ -4,12 +4,13 @@
 
 ## 로컬 체크리스트
 
-1. `python -m ruff check orderwave tests scripts` 실행
+1. `python -m ruff check orderwave tests scripts examples` 실행
 2. `python -m mypy` 실행
 3. `python -m pytest -q` 실행
 4. `python -m scripts.render_doc_images` 실행
-5. 코드, 문서, 재생성된 asset을 커밋
-6. `main`에 푸시
+5. 필요하면 `python -m scripts.profile_realism --steps 5000`로 aggregate profile 확인
+6. 코드, 문서, 재생성된 asset을 커밋
+7. `main`에 푸시
 
 ## 배포
 

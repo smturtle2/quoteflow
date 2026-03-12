@@ -16,7 +16,7 @@ def render_overview(outdir: Path) -> None:
     figure = market.plot(
         max_steps=720,
         price_window_ticks=12,
-        title="Regime-aware order flow becomes price",
+        title="Latent liquidity becomes visible price and depth",
         figsize=(14.5, 9.0),
     )
     figure.savefig(outdir / "orderwave-built-in-overview.png", dpi=180, bbox_inches="tight")
@@ -38,7 +38,7 @@ def render_diagnostics(outdir: Path) -> None:
         anchor="price",
         max_steps=900,
         price_window_ticks=12,
-        title="Regime-aware level-ranked signed depth heatmap",
+        title="Latent-liquidity level-ranked signed depth heatmap",
         figsize=(13.5, 7.5),
     )
     figure.savefig(outdir / "orderwave-built-in-diagnostics.png", dpi=180, bbox_inches="tight")
@@ -70,7 +70,7 @@ def render_variants(outdir: Path) -> None:
         axis.grid(alpha=0.25, linestyle="--")
     axes[0].set_ylabel("Price")
     axes[0].legend(loc="upper left", frameon=False)
-    figure.suptitle("Configuration variants")
+    figure.suptitle("Configuration variants under the latent-liquidity kernel")
     figure.savefig(outdir / "orderwave-built-in-presets.png", dpi=180, bbox_inches="tight")
     plt.close(figure)
 

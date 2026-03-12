@@ -18,8 +18,8 @@
 ## Runtime 모델
 
 - 엔진은 aggregate-book 구조를 유지합니다. per-order FIFO queue는 시뮬레이션하지 않습니다.
-- 현실성은 buy/sell flow impulse, bid/ask cancel pressure, bid/ask refill lag, gap pressure, hidden liquidity regime, persistent execution pressure를 추적하는 regime-aware queue-reactive kernel에서 나옵니다.
-- market, limit, cancel flow는 현재 book 상태를 조건으로 한 side-specific Poisson intensity에서 샘플링합니다.
+- 현실성은 latent-liquidity Cox kernel에서 나옵니다. hidden stochastic state가 total liquidity, side skew, flow bias, depth-cell shape를 먼저 만들고, 그 뒤 visible limit/cancel/market flow가 샘플링됩니다.
+- 얇아진 side의 회복은 hard floor가 아니라 shortage-aware reveal budget, connected queue scoring, cancel thinning이 연속적으로 반응하면서 만들어집니다.
 - repair는 safety-only라서 visible hole과 delayed refill이 매 step 지워지지 않습니다.
 
 ## Plotting
@@ -57,4 +57,4 @@ realism profile:
 python -m scripts.profile_realism --steps 5000
 ```
 
-출력에는 spread/impact persistence, rank별 depth shape, shock-side cancel/refill skew, regime 점유율, connected-vs-isolated deep liquidity 구조가 포함됩니다.
+출력에는 spread/impact persistence, rank별 depth shape, visible/full-book one-sidedness, near-touch connectivity, pair-distribution entropy가 포함됩니다.

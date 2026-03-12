@@ -4,12 +4,13 @@ The repository keeps one GitHub Actions workflow and it only runs when a GitHub 
 
 ## Local Checklist
 
-1. Run `python -m ruff check orderwave tests scripts`.
+1. Run `python -m ruff check orderwave tests scripts examples`.
 2. Run `python -m mypy`.
 3. Run `python -m pytest -q`.
 4. Run `python -m scripts.render_doc_images`.
-5. Commit the code, docs, and regenerated assets.
-6. Push the branch to `main`.
+5. Optionally run `python -m scripts.profile_realism --steps 5000` and review the aggregate profile.
+6. Commit the code, docs, and regenerated assets.
+7. Push the branch to `main`.
 
 ## Publish
 

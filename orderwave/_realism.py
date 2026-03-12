@@ -2,6 +2,7 @@ from __future__ import annotations
 
 """Internal realism metrics for aggregate order-book runs."""
 
+from collections import Counter
 from dataclasses import asdict, dataclass, fields
 from typing import TYPE_CHECKING, Any
 
@@ -15,8 +16,6 @@ if TYPE_CHECKING:
 
 _RANK_COUNT = 5
 _IMPACT_HORIZONS = (1, 2, 5, 10)
-_REGIME_TIGHT = 0
-_REGIME_FRAGILE = 2
 
 
 @dataclass(frozen=True)
@@ -39,14 +38,17 @@ class RealismProfile:
     bid_gap_run_median: float
     ask_gap_run_median: float
     impact_decay_abs: tuple[float, ...]
-    buy_shock_cancel_skew: float
-    sell_shock_cancel_skew: float
-    buy_shock_refill_skew: float
-    sell_shock_refill_skew: float
-    tight_regime_share: float
-    fragile_regime_share: float
-    connected_depth_share: float
-    isolated_depth_share: float
+    visible_one_side_thin_share: float
+    visible_one_vs_many_share: float
+    full_book_extreme_share: float
+    avg_visible_levels_bid: float
+    avg_visible_levels_ask: float
+    avg_full_levels_bid: float
+    avg_full_levels_ask: float
+    near_touch_connectivity_bid: float
+    near_touch_connectivity_ask: float
+    visible_pair_entropy: float
+    full_pair_entropy: float
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -61,14 +63,17 @@ def profile_market_realism(market: Market, *, steps: int) -> RealismProfile:
     ask_gap_active = 0
     bid_rank_depths: list[tuple[float, ...]] = []
     ask_rank_depths: list[tuple[float, ...]] = []
-    buy_cancel_skews: list[float] = []
-    sell_cancel_skews: list[float] = []
-    buy_refill_skews: list[float] = []
-    sell_refill_skews: list[float] = []
-    connected_shares: list[float] = []
-    isolated_shares: list[float] = []
-    tight_steps = 0
-    fragile_steps = 0
+    visible_pairs: Counter[tuple[int, int]] = Counter()
+    full_pairs: Counter[tuple[int, int]] = Counter()
+    visible_one_side_thin = 0
+    visible_one_vs_many = 0
+    full_book_extreme = 0
+    bid_visible_levels_sum = 0.0
+    ask_visible_levels_sum = 0.0
+    bid_full_levels_sum = 0.0
+    ask_full_levels_sum = 0.0
+    bid_connectivity: list[float] = []
+    ask_connectivity: list[float] = []
 
     for _ in range(int(steps)):
         market.step()
@@ -85,23 +90,26 @@ def profile_market_realism(market: Market, *, steps: int) -> RealismProfile:
         bid_gap_active = _update_gap_run(bid_gap_runs, bid_gap_active, any(flag > 0.0 for flag in bid_flags))
         ask_gap_active = _update_gap_run(ask_gap_runs, ask_gap_active, any(flag > 0.0 for flag in ask_flags))
 
-        connected, isolated = _connectivity_shares(bid_levels, ask_levels)
-        connected_shares.append(connected)
-        isolated_shares.append(isolated)
+        bid_visible = len(market._book.levels("bid", market.levels))  # type: ignore[attr-defined]
+        ask_visible = len(market._book.levels("ask", market.levels))  # type: ignore[attr-defined]
+        bid_full = market._book.level_count("bid")  # type: ignore[attr-defined]
+        ask_full = market._book.level_count("ask")  # type: ignore[attr-defined]
+        visible_pairs[(bid_visible, ask_visible)] += 1
+        full_pairs[(bid_full, ask_full)] += 1
+        bid_visible_levels_sum += bid_visible
+        ask_visible_levels_sum += ask_visible
+        bid_full_levels_sum += bid_full
+        ask_full_levels_sum += ask_full
 
-        kernel = market._kernel  # type: ignore[attr-defined]
-        if kernel.liquidity_regime == _REGIME_TIGHT:
-            tight_steps += 1
-        if kernel.liquidity_regime == _REGIME_FRAGILE:
-            fragile_steps += 1
+        if bid_visible <= 1 or ask_visible <= 1:
+            visible_one_side_thin += 1
+        if (bid_visible <= 1 and ask_visible >= 4) or (ask_visible <= 1 and bid_visible >= 4):
+            visible_one_vs_many += 1
+        if (bid_full <= 2 and ask_full >= 7) or (ask_full <= 2 and bid_full >= 7):
+            full_book_extreme += 1
 
-        signed_flow_step = float(market._buy_aggr_volume - market._sell_aggr_volume)  # type: ignore[attr-defined]
-        if signed_flow_step > 0.0:
-            buy_cancel_skews.append(kernel.ask_cancel_pressure - kernel.bid_cancel_pressure)
-            buy_refill_skews.append(kernel.bid_refill_lag - kernel.ask_refill_lag)
-        elif signed_flow_step < 0.0:
-            sell_cancel_skews.append(kernel.bid_cancel_pressure - kernel.ask_cancel_pressure)
-            sell_refill_skews.append(kernel.ask_refill_lag - kernel.bid_refill_lag)
+        bid_connectivity.append(_near_touch_connectivity(bid_levels))
+        ask_connectivity.append(_near_touch_connectivity(ask_levels))
 
     if bid_gap_active > 0:
         bid_gap_runs.append(bid_gap_active)
@@ -140,14 +148,17 @@ def profile_market_realism(market: Market, *, steps: int) -> RealismProfile:
         bid_gap_run_median=_median_runs(bid_gap_runs),
         ask_gap_run_median=_median_runs(ask_gap_runs),
         impact_decay_abs=tuple(_impact_corr(mid_prices, signed_flow, horizon) for horizon in _IMPACT_HORIZONS),
-        buy_shock_cancel_skew=_safe_mean(buy_cancel_skews),
-        sell_shock_cancel_skew=_safe_mean(sell_cancel_skews),
-        buy_shock_refill_skew=_safe_mean(buy_refill_skews),
-        sell_shock_refill_skew=_safe_mean(sell_refill_skews),
-        tight_regime_share=float(tight_steps / max(int(steps), 1)),
-        fragile_regime_share=float(fragile_steps / max(int(steps), 1)),
-        connected_depth_share=_safe_mean(connected_shares),
-        isolated_depth_share=_safe_mean(isolated_shares),
+        visible_one_side_thin_share=float(visible_one_side_thin / max(int(steps), 1)),
+        visible_one_vs_many_share=float(visible_one_vs_many / max(int(steps), 1)),
+        full_book_extreme_share=float(full_book_extreme / max(int(steps), 1)),
+        avg_visible_levels_bid=float(bid_visible_levels_sum / max(int(steps), 1)),
+        avg_visible_levels_ask=float(ask_visible_levels_sum / max(int(steps), 1)),
+        avg_full_levels_bid=float(bid_full_levels_sum / max(int(steps), 1)),
+        avg_full_levels_ask=float(ask_full_levels_sum / max(int(steps), 1)),
+        near_touch_connectivity_bid=_safe_mean(bid_connectivity),
+        near_touch_connectivity_ask=_safe_mean(ask_connectivity),
+        visible_pair_entropy=_normalized_entropy(visible_pairs),
+        full_pair_entropy=_normalized_entropy(full_pairs),
     )
 
 
@@ -186,33 +197,22 @@ def _gap_flags(levels: tuple[tuple[int, int], ...]) -> list[float]:
     return flags
 
 
+def _near_touch_connectivity(levels: tuple[tuple[int, int], ...]) -> float:
+    if len(levels) <= 1:
+        return 0.0
+    adjacent = 0.0
+    pairs = min(3, len(levels) - 1)
+    for index in range(pairs):
+        adjacent += 1.0 if abs(levels[index][0] - levels[index + 1][0]) == 1 else 0.0
+    return adjacent / float(pairs)
+
+
 def _update_gap_run(runs: list[int], active_run: int, has_gap: bool) -> int:
     if has_gap:
         return active_run + 1
     if active_run > 0:
         runs.append(active_run)
     return 0
-
-
-def _connectivity_shares(
-    bid_levels: tuple[tuple[int, int], ...],
-    ask_levels: tuple[tuple[int, int], ...],
-) -> tuple[float, float]:
-    connected = 0
-    isolated = 0
-    total = 0
-    for levels in (bid_levels, ask_levels):
-        ticks = [tick for tick, _ in levels[: max(_RANK_COUNT + 1, 6)]]
-        tick_set = set(ticks)
-        for tick in ticks[2:]:
-            total += 1
-            if (tick - 1) in tick_set or (tick + 1) in tick_set:
-                connected += 1
-            else:
-                isolated += 1
-    if total == 0:
-        return 0.0, 0.0
-    return connected / float(total), isolated / float(total)
 
 
 def _tuple_mean(values: np.ndarray) -> tuple[float, ...]:
@@ -230,7 +230,7 @@ def _tuple_std(values: np.ndarray) -> tuple[float, ...]:
 def _impact_corr(mid_prices: np.ndarray, signed_flow: np.ndarray, horizon: int) -> float:
     if mid_prices.size <= horizon or signed_flow.size <= horizon:
         return 0.0
-    future_move = mid_prices[horizon:] - mid_prices[:-horizon]
+    future_move = mid_prices[horizon:] - mid_prices[horizon - 1 : -1]
     response = _corr(signed_flow[:-horizon], future_move)
     return abs(response)
 
@@ -239,6 +239,15 @@ def _median_runs(runs: list[int]) -> float:
     if not runs:
         return 0.0
     return float(np.median(np.asarray(runs, dtype=float)))
+
+
+def _normalized_entropy(counter: Counter[tuple[int, int]]) -> float:
+    total = sum(counter.values())
+    if total <= 0 or len(counter) <= 1:
+        return 0.0
+    probabilities = np.asarray([count / total for count in counter.values()], dtype=float)
+    entropy = -float(np.sum(probabilities * np.log(probabilities)))
+    return entropy / float(np.log(len(counter)))
 
 
 def _safe_mean(values: list[float]) -> float:

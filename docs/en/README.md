@@ -18,8 +18,8 @@
 ## Runtime Model
 
 - The engine stays aggregate-book only. It does not simulate per-order FIFO queues.
-- Realism comes from a regime-aware queue-reactive kernel that tracks buy/sell flow impulse, bid/ask cancel pressure, bid/ask refill lag, gap pressure, hidden liquidity regime, and persistent execution pressure.
-- Market, limit, and cancel flow are sampled from side-specific Poisson intensities conditioned on the current book state.
+- Realism comes from a latent-liquidity Cox kernel. A hidden stochastic state controls total liquidity, side skew, flow bias, and depth-cell shape before visible limit/cancel/market events are sampled.
+- Thin-side recovery is shortage-driven and smooth: reveal budgets, connected queue scoring, and cancel thinning react continuously to shape deficits instead of using hard visible-level floors.
 - Repair is safety-only, so visible holes and delayed refill can survive instead of being erased every step.
 
 ## Plotting
@@ -57,4 +57,4 @@ Realism profile:
 python -m scripts.profile_realism --steps 5000
 ```
 
-The profiler emits spread/impact persistence, rank-level depth shape, shock-side cancel/refill skew, regime occupancy, and connected-versus-isolated deep liquidity structure.
+The profiler emits spread/impact persistence, rank-level depth shape, visible/full-book one-sidedness, near-touch connectivity, and pair-distribution entropy.
