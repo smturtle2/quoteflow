@@ -44,6 +44,7 @@ python -m scripts.validate_orderwave \
 ```
 
 This profile is intentionally much smaller than the full quality regression sweep so the gate stays fast in CI.
+It also uses a looser throughput floor than the full validation profile so GitHub-hosted runner variance does not block a structurally identical release. Use `scripts.measure_performance` for machine-local throughput tracking.
 
 ## Trusted Publisher Settings
 

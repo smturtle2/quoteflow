@@ -11,6 +11,7 @@ from .shared import (
     BYTES_PER_LOGGED_EVENT_BUDGET,
     CORE_SENSITIVITY_KNOBS,
     EPSILON,
+    RELEASE_SMOKE_THROUGHPUT_FLOOR,
     SOAK_PEAK_MEMORY_BUDGET_MB,
     coefficient_of_variation,
     preset_compare,
@@ -40,7 +41,8 @@ def evaluate_validation_results(
     performance_checks: dict[str, bool] = {
         "soak_failures": bool(not soak_metrics.empty and (~soak_metrics["run_failed"]).all()),
     }
-    for preset, floor in BASELINE_THROUGHPUT_FLOOR.items():
+    throughput_floors = RELEASE_SMOKE_THROUGHPUT_FLOOR if profile_name == "release_smoke" else BASELINE_THROUGHPUT_FLOOR
+    for preset, floor in throughput_floors.items():
         performance_checks[f"{preset}_throughput_floor"] = bool(
             preset in baseline_summary.index and float(baseline_summary.loc[preset, "steps_per_second_mean"]) >= floor
         )

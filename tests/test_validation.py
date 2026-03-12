@@ -172,3 +172,45 @@ def test_decision_engine_performance_gate_smoke() -> None:
 
     assert acceptance["performance_ok"] is True
     assert acceptance["decision"] in {"GO", "CONDITIONAL"}
+
+    release_run_metrics = run_metrics.copy()
+    release_run_metrics.loc[
+        (release_run_metrics["stage"] == "baseline") & (release_run_metrics["preset"] == "balanced"),
+        "steps_per_second",
+    ] = 220.0
+    release_run_metrics.loc[
+        (release_run_metrics["stage"] == "baseline") & (release_run_metrics["preset"] == "trend"),
+        "steps_per_second",
+    ] = 190.0
+    release_run_metrics.loc[
+        (release_run_metrics["stage"] == "baseline") & (release_run_metrics["preset"] == "volatile"),
+        "steps_per_second",
+    ] = 170.0
+    release_preset_summary = preset_summary.copy()
+    release_preset_summary.loc[
+        (release_preset_summary["stage"] == "baseline") & (release_preset_summary["preset"] == "balanced"),
+        "steps_per_second_mean",
+    ] = 220.0
+    release_preset_summary.loc[
+        (release_preset_summary["stage"] == "baseline") & (release_preset_summary["preset"] == "trend"),
+        "steps_per_second_mean",
+    ] = 190.0
+    release_preset_summary.loc[
+        (release_preset_summary["stage"] == "baseline") & (release_preset_summary["preset"] == "volatile"),
+        "steps_per_second_mean",
+    ] = 170.0
+
+    release_acceptance = evaluate_validation_results(
+        run_metrics=release_run_metrics,
+        preset_summary=release_preset_summary,
+        reproducibility=reproducibility,
+        sensitivity_summary=sensitivity_summary,
+        invariant_failures=pd.DataFrame(columns=["preset", "seed", "stage", "step", "event_idx", "invariant_name", "details"]),
+        profile_name="release_smoke",
+    )
+
+    assert release_acceptance["performance_checks"]["balanced_throughput_floor"] is True
+    assert release_acceptance["performance_checks"]["trend_throughput_floor"] is True
+    assert release_acceptance["performance_checks"]["volatile_throughput_floor"] is True
+    assert release_acceptance["performance_ok"] is True
+    assert release_acceptance["decision"] == "PASS"

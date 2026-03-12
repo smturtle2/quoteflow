@@ -57,6 +57,11 @@ BASELINE_THROUGHPUT_FLOOR = {
     "trend": 225.0,
     "volatile": 200.0,
 }
+RELEASE_SMOKE_THROUGHPUT_FLOOR = {
+    "balanced": 200.0,
+    "trend": 180.0,
+    "volatile": 160.0,
+}
 SOAK_PEAK_MEMORY_BUDGET_MB = {
     "balanced": 2_048.0,
     "trend": 3_072.0,

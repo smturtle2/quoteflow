@@ -44,6 +44,7 @@ python -m scripts.validate_orderwave \
 ```
 
 이 profile은 full quality regression sweep보다 훨씬 작아서 CI 릴리스 게이트를 빠르게 유지합니다.
+또한 GitHub 호스티드 러너의 성능 편차 때문에 동일한 구조의 릴리스가 막히지 않도록 전체 validation보다 느슨한 throughput floor를 사용합니다. 머신별 성능 추적은 `scripts.measure_performance`로 따로 확인합니다.
 
 ## Trusted Publisher 설정
 
