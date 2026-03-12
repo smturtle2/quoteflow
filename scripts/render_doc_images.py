@@ -38,7 +38,7 @@ def render_diagnostics(outdir: Path) -> None:
         anchor="price",
         max_steps=900,
         price_window_ticks=18,
-        title="Price-anchored signed depth heatmap",
+        title="Fixed-level signed depth heatmap",
         figsize=(13.5, 7.5),
     )
     figure.savefig(outdir / "orderwave-built-in-diagnostics.png", dpi=180, bbox_inches="tight")

@@ -50,7 +50,7 @@ def main() -> None:
             anchor="price",
             max_steps=min(args.steps, 1_200),
             price_window_ticks=16,
-            title=f"orderwave price heatmap (seed={args.seed})",
+            title=f"orderwave fixed-level heatmap (seed={args.seed})",
         )
     else:
         figure = market.plot(

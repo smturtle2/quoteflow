@@ -36,10 +36,10 @@ book = market.plot_book()
 - `get()`: 현재 snapshot을 `dict`로 반환
 - `get_history()`: summary history를 `pandas.DataFrame`으로 반환
 - `plot()`: price path와 mid-anchor signed-depth heatmap 렌더. `capture="visual"` 필요
-- `plot_heatmap(anchor="mid" | "price")`: standalone heatmap 렌더. `capture="visual"` 필요
+- `plot_heatmap(anchor="mid" | "price")`: level 좌표계 기반 standalone heatmap 렌더. `capture="visual"` 필요
 - `plot_book()`: 현재 order book 렌더
 
-`capture="summary"`는 fast path를 최대한 가볍게 유지합니다. `capture="visual"`은 움직이는 시장 중심 주변의 fixed signed-depth window를 저장해서, heatmap에서 sweep, void, refill 구조가 보이게 합니다.
+`capture="summary"`는 fast path를 최대한 가볍게 유지합니다. `capture="visual"`은 움직이는 시장 중심 주변의 fixed signed-depth window를 저장해서, heatmap에서 sweep, void, refill 구조가 보이게 합니다. heatmap y축은 실제 가격이 아니라 level 기준입니다.
 
 ## Snapshot과 History
 

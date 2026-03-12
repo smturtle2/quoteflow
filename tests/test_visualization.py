@@ -51,3 +51,4 @@ def test_plot_methods_return_figures_in_visual_mode() -> None:
     assert isinstance(overview, Figure)
     assert isinstance(heatmap, Figure)
     assert isinstance(book, Figure)
+    assert heatmap.axes[0].get_ylabel() == "Levels"

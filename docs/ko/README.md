@@ -26,7 +26,7 @@ plot surface:
 Heatmap 의미:
 
 - `anchor="mid"`는 움직이는 시장 중심 기준으로 row를 정렬하므로 sweep/refill 구조를 읽기 좋습니다.
-- `anchor="price"`는 실제 가격축 기준이라 drift와 persistent wall을 읽기 좋습니다.
+- `anchor="price"`는 고정 기준 ladder를 유지하지만, y축은 계속 가격이 아니라 level 기준입니다.
 - color는 robust asinh scaling이 적용된 signed depth라서 큰 wall 하나가 전체 contrast를 망치지 않습니다.
 
 ## 문서 이미지

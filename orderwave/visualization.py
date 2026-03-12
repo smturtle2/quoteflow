@@ -146,7 +146,7 @@ def plot_heatmap(
         max_steps=max_steps,
         price_window_ticks=price_window_ticks,
     )
-    axis.set_title(title or ("Price-anchored heatmap" if anchor == "price" else "Mid-anchored heatmap"))
+    axis.set_title(title or ("Fixed-level heatmap" if anchor == "price" else "Mid-anchored heatmap"))
     return figure
 
 
@@ -310,7 +310,7 @@ def _prepare_heatmap(
             y_edges=y_edges,
             best_bid_trace=best_bid_trace,
             best_ask_trace=best_ask_trace,
-            ylabel="Relative ticks",
+            ylabel="Levels",
             yticks=ytick_positions,
             yticklabels=ytick_labels,
         )
@@ -336,12 +336,18 @@ def _prepare_heatmap(
             if 0 <= target < absolute_matrix.shape[0]:
                 absolute_matrix[target, column_index] = value
 
-    y_prices = np.array([tick_to_price(tick, tick_size) for tick in absolute_ticks], dtype=float)
-    y_step = tick_size
-    y_edges = np.concatenate(([y_prices[0] - (0.5 * y_step)], y_prices + (0.5 * y_step)))
-    best_bid_trace = np.array([tick_to_price(tick, tick_size) for tick in best_bid], dtype=float)
-    best_ask_trace = np.array([tick_to_price(tick, tick_size) for tick in best_ask], dtype=float)
-    ytick_positions, ytick_labels = _sparse_tick_labels(y_prices, unit="price")
+    anchor_center = int(round(float(np.median(centers))))
+    level_offsets = absolute_ticks.astype(float, copy=False) - float(anchor_center)
+    y_edges = np.concatenate(
+        (
+            [level_offsets[0] - 0.5],
+            level_offsets[:-1] + (np.diff(level_offsets) / 2.0),
+            [level_offsets[-1] + 0.5],
+        )
+    ).astype(float, copy=False)
+    best_bid_trace = best_bid - float(anchor_center)
+    best_ask_trace = best_ask - float(anchor_center)
+    ytick_positions, ytick_labels = _sparse_tick_labels(level_offsets, unit="")
     return HeatmapPayload(
         steps=steps,
         signed_depth=absolute_matrix,
@@ -349,7 +355,7 @@ def _prepare_heatmap(
         y_edges=y_edges,
         best_bid_trace=best_bid_trace,
         best_ask_trace=best_ask_trace,
-        ylabel="Price",
+        ylabel="Levels",
         yticks=ytick_positions,
         yticklabels=ytick_labels,
     )

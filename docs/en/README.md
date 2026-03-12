@@ -26,7 +26,7 @@ The plotting surface is:
 Heatmap semantics:
 
 - `anchor="mid"` centers rows on the moving market center and is best for reading sweeps and refills.
-- `anchor="price"` uses the real price axis and is best for reading drift and persistent walls.
+- `anchor="price"` keeps a fixed reference ladder, but the y-axis still shows levels rather than prices.
 - Colors are signed depth with robust asinh scaling, so one large wall does not flatten the rest of the book.
 
 ## Documentation Images
