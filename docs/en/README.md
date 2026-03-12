@@ -18,7 +18,7 @@
 ## Runtime Model
 
 - The engine stays aggregate-book only. It does not simulate per-order FIFO queues.
-- Realism comes from latent distribution synthesis. A hidden stochastic state combines total-liquidity, side-skew, and side-specific depth distributions before visible limit/cancel/market events are sampled.
+- Realism comes from dynamic distribution synthesis. A hidden stochastic state combines total-liquidity, side-skew, and multiple side-specific depth distributions with moving mass, location, and variance before visible limit/cancel/market events are sampled.
 - Thin-side recovery is shortage-driven and smooth: shortage distributions and near-touch distributions are re-synthesized continuously instead of using hard visible-level floors.
 - Repair is safety-only, so visible holes and delayed refill can survive instead of being erased every step.
 
@@ -45,6 +45,8 @@ Regenerate all documentation assets with:
 python -m scripts.render_doc_images
 ```
 
+The renderer searches for representative seeds that pass drift and path-balance acceptance, instead of hard-coding a single seed.
+
 Standalone example:
 
 ```bash
@@ -57,4 +59,4 @@ Realism profile:
 python -m scripts.profile_realism --steps 5000
 ```
 
-The profiler emits spread/impact persistence, rank-level depth shape, visible/full-book one-sidedness, near-touch connectivity, and pair-distribution entropy.
+The profiler emits spread/impact persistence, up/down step balance, flow/return sign agreement, rank-level depth shape, visible/full-book one-sidedness, near-touch connectivity, and pair-distribution entropy.

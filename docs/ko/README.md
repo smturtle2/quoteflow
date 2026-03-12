@@ -18,7 +18,7 @@
 ## Runtime 모델
 
 - 엔진은 aggregate-book 구조를 유지합니다. per-order FIFO queue는 시뮬레이션하지 않습니다.
-- 현실성은 latent distribution synthesis에서 나옵니다. hidden stochastic state가 total liquidity, side skew, side별 depth distribution을 먼저 합성하고, 그 뒤 visible limit/cancel/market flow가 샘플링됩니다.
+- 현실성은 dynamic distribution synthesis에서 나옵니다. hidden stochastic state가 total liquidity, side skew, 그리고 mass/location/variance가 움직이는 여러 side별 depth distribution을 먼저 합성하고, 그 뒤 visible limit/cancel/market flow가 샘플링됩니다.
 - 얇아진 side의 회복은 hard floor가 아니라 shortage distribution과 near-touch distribution이 다시 합성되면서 만들어집니다.
 - repair는 safety-only라서 visible hole과 delayed refill이 매 step 지워지지 않습니다.
 
@@ -45,6 +45,8 @@ Heatmap 의미:
 python -m scripts.render_doc_images
 ```
 
+렌더러는 이제 고정 seed 대신 drift와 path balance 기준을 통과한 representative seed를 자동으로 찾습니다.
+
 standalone example:
 
 ```bash
@@ -57,4 +59,4 @@ realism profile:
 python -m scripts.profile_realism --steps 5000
 ```
 
-출력에는 spread/impact persistence, rank별 depth shape, visible/full-book one-sidedness, near-touch connectivity, pair-distribution entropy가 포함됩니다.
+출력에는 spread/impact persistence, 상승/하락 step 균형, flow/return sign agreement, rank별 depth shape, visible/full-book one-sidedness, near-touch connectivity, pair-distribution entropy가 포함됩니다.

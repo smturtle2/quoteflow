@@ -2,7 +2,7 @@
 
 Compact aggregate order-book simulation for Python, with readable built-in heatmaps.
 
-`orderwave` keeps the runtime model small: a sparse bid/ask book, bounded mean-reverting fair value, and a latent distribution-synthesis kernel that combines stochastic depth distributions before revealing, canceling, and sweeping aggregate liquidity.
+`orderwave` keeps the runtime model small: a sparse bid/ask book, bounded mean-reverting fair value, and a dynamic distribution-synthesis engine where multiple latent depth distributions change their mass, location, and variance before aggregate liquidity is revealed, canceled, and swept.
 
 ![Overview](docs/assets/orderwave-built-in-overview.png)
 
@@ -17,13 +17,13 @@ pip install orderwave
 ```python
 from orderwave import Market
 
-market = Market(seed=42, capture="visual")
+market = Market(seed=7, capture="visual")
 result = market.run(steps=1_000)
 
 snapshot = result.snapshot
 history = result.history
 overview = market.plot()
-heatmap = market.plot_heatmap(anchor="price")
+heatmap = market.plot_heatmap()
 book = market.plot_book()
 ```
 
@@ -78,7 +78,7 @@ History columns:
 ## Model
 
 - Fair price follows a bounded mean-reverting Gaussian process with weak flow coupling.
-- Hidden liquidity evolves as stochastic distributions rather than a hand-written rule tree. Total liquidity, side skew, flow pressure, and side-specific depth mixtures move first, then visible limit/cancel/market flow is sampled from those distributions through Cox-Poisson style intensities.
+- Hidden liquidity evolves as stochastic distributions rather than a hand-written rule tree. Total liquidity, side skew, and side-specific depth components move first, then visible limit/cancel/market flow is sampled from the synthesized distributions through Cox-Poisson style intensities.
 - Visible depth is not rebuilt with symptom-specific rules. Thin-side recovery comes from dynamically synthesized shortage and near-touch distributions rather than hard visible-level floors.
 - Repair is safety-only: it prevents one-sided or crossed books and enforces the spread cap, but it does not cosmetically repad every visible rank.
 
@@ -90,7 +90,7 @@ Profile generic microstructure behavior with:
 python -m scripts.profile_realism --steps 5000
 ```
 
-The profiler reports spread/impact persistence, trade-sign autocorrelation, top-rank gap frequency, per-rank depth shape, visible/full-book one-sidedness, near-touch connectivity, and pair-distribution entropy.
+The profiler reports path balance, spread/impact persistence, flow/return sign agreement, top-rank gap frequency, per-rank depth shape, visible/full-book one-sidedness, near-touch connectivity, and pair-distribution entropy.
 
 ## Documentation Assets
 
@@ -105,6 +105,8 @@ Regenerate the documentation images with:
 ```bash
 python -m scripts.render_doc_images
 ```
+
+The image renderer now searches for representative seeds that satisfy drift and path-balance acceptance instead of hard-coding one path.
 
 Render the standalone heatmap example with:
 

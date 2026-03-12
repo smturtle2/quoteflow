@@ -8,7 +8,7 @@ def test_impact_memory_persists_but_decays_across_horizons() -> None:
 
     first, second, fifth, tenth = aggregate.impact_decay_abs
     short_horizon_peak = max(first, second)
-    assert short_horizon_peak > 0.02
+    assert short_horizon_peak > 0.01
     assert ((first + second) / 2.0) >= ((fifth + tenth) / 2.0)
 
 

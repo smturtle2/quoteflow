@@ -7,7 +7,7 @@
 1. `python -m ruff check orderwave tests scripts examples` 실행
 2. `python -m mypy` 실행
 3. `python -m pytest -q` 실행
-4. `python -m scripts.render_doc_images` 실행
+4. `python -m scripts.render_doc_images` 실행 후 short-window acceptance를 통과한 representative seed가 선택되는지 확인
 5. 필요하면 `python -m scripts.profile_realism --steps 5000`로 aggregate profile 확인
 6. 코드, 문서, 재생성된 asset을 커밋
 7. `main`에 푸시

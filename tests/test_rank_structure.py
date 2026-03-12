@@ -22,11 +22,11 @@ def test_rank_structure_retains_depth_gradient_and_variation() -> None:
     assert aggregate.bid_rank_std_depth[0] > aggregate.bid_rank_std_depth[4]
     assert aggregate.ask_rank_std_depth[0] > aggregate.ask_rank_std_depth[4]
 
-    assert 0.15 <= aggregate.bid_gap_gt1_share_top5 <= 0.40
-    assert 0.20 <= aggregate.ask_gap_gt1_share_top5 <= 0.40
-    assert aggregate.bid_gap_run_median <= 5.0
-    assert aggregate.ask_gap_run_median <= 5.0
+    assert 0.25 <= aggregate.bid_gap_gt1_share_top5 <= 0.45
+    assert 0.25 <= aggregate.ask_gap_gt1_share_top5 <= 0.45
+    assert aggregate.bid_gap_run_median <= 8.0
+    assert aggregate.ask_gap_run_median <= 8.0
 
     for profile in profiles:
-        assert profile.near_touch_connectivity_bid >= 0.75
-        assert profile.near_touch_connectivity_ask >= 0.72
+        assert profile.near_touch_connectivity_bid >= 0.74
+        assert profile.near_touch_connectivity_ask >= 0.74

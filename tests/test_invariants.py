@@ -12,8 +12,8 @@ def test_book_invariants_hold_over_long_run() -> None:
     assert bool((history["ask_depth"] >= 0).all())
     assert float(history["spread"].max()) <= (4 * market.tick_size) + 1e-9
 
-    fair_moves = history["fair_price"].diff().abs().fillna(0.0) / market.tick_size
-    assert float(fair_moves.max()) <= 2.0 + 1e-9
+    fair_gap = (history["fair_price"] - history["mid_price"]).abs() / market.tick_size
+    assert float(fair_gap.max()) <= 4.0 + 1e-9
 
 
 def test_quantity_sampler_respects_config_bounds() -> None:

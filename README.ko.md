@@ -2,7 +2,7 @@
 
 가독성 좋은 built-in heatmap을 포함한 compact aggregate order-book 시뮬레이터입니다.
 
-`orderwave`는 runtime 모델을 작게 유지합니다. sparse bid/ask book, bounded mean-reverting fair value, 그리고 큰 heuristic 트리 대신 여러 stochastic depth distribution을 합성하는 latent distribution-synthesis kernel로 visible liquidity를 드러내고 취소하고 sweep합니다.
+`orderwave`는 runtime 모델을 작게 유지합니다. sparse bid/ask book, bounded mean-reverting fair value, 그리고 여러 latent depth distribution의 mass, location, variance가 step마다 바뀌며 합성되는 dynamic distribution-synthesis 엔진으로 visible liquidity를 드러내고 취소하고 sweep합니다.
 
 ![Overview](docs/assets/orderwave-built-in-overview.png)
 
@@ -17,13 +17,13 @@ pip install orderwave
 ```python
 from orderwave import Market
 
-market = Market(seed=42, capture="visual")
+market = Market(seed=7, capture="visual")
 result = market.run(steps=1_000)
 
 snapshot = result.snapshot
 history = result.history
 overview = market.plot()
-heatmap = market.plot_heatmap(anchor="price")
+heatmap = market.plot_heatmap()
 book = market.plot_book()
 ```
 
@@ -90,7 +90,7 @@ History column:
 python -m scripts.profile_realism --steps 5000
 ```
 
-출력에는 spread/impact persistence, trade-sign autocorrelation, 상위 rank gap 빈도, rank별 depth shape, visible/full-book one-sidedness, near-touch connectivity, pair-distribution entropy가 포함됩니다.
+출력에는 path balance, spread/impact persistence, flow/return sign agreement, 상위 rank gap 빈도, rank별 depth shape, visible/full-book one-sidedness, near-touch connectivity, pair-distribution entropy가 포함됩니다.
 
 ## 문서 이미지
 
@@ -105,6 +105,8 @@ python -m scripts.profile_realism --steps 5000
 ```bash
 python -m scripts.render_doc_images
 ```
+
+이제 문서 이미지는 고정 seed를 쓰지 않고, drift와 path balance 기준을 통과한 representative seed를 자동으로 골라서 생성합니다.
 
 standalone heatmap 예제:
 

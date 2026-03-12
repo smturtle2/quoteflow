@@ -23,6 +23,8 @@ class RealismProfile:
     seed: int | None
     steps: int
     normalized_net_drift: float
+    up_step_share: float
+    down_step_share: float
     variance_ratio_5: float
     variance_ratio_20: float
     one_tick_spread_share: float
@@ -32,6 +34,7 @@ class RealismProfile:
     trade_sign_acf5: float
     same_step_impact_corr: float
     next_step_impact_corr: float
+    flow_return_sign_agreement: float
     bid_gap_gt1_share_top5: float
     ask_gap_gt1_share_top5: float
     spread_recovery_median: float
@@ -135,6 +138,8 @@ def profile_market_realism(market: Market, *, steps: int) -> RealismProfile:
         seed=market.seed,
         steps=int(steps),
         normalized_net_drift=_normalized_net_drift(mid_ticks, int(steps)),
+        up_step_share=float(np.mean(mid_returns > 0.0)),
+        down_step_share=float(np.mean(mid_returns < 0.0)),
         variance_ratio_5=_variance_ratio(mid_ticks, 5),
         variance_ratio_20=_variance_ratio(mid_ticks, 20),
         one_tick_spread_share=float(np.mean(spread_ticks == 1.0)),
@@ -144,6 +149,7 @@ def profile_market_realism(market: Market, *, steps: int) -> RealismProfile:
         trade_sign_acf5=_sign_autocorr(trade_sign, 5),
         same_step_impact_corr=_corr(signed_flow[1:], mid_returns[1:]),
         next_step_impact_corr=_corr(signed_flow[:-1], mid_returns[1:]),
+        flow_return_sign_agreement=_sign_agreement(signed_flow[1:], mid_returns[1:]),
         bid_gap_gt1_share_top5=float(np.mean(bid_gap_flags)) if bid_gap_flags else 0.0,
         ask_gap_gt1_share_top5=float(np.mean(ask_gap_flags)) if ask_gap_flags else 0.0,
         spread_recovery_median=_median_spread_recovery(spread_ticks),
@@ -239,6 +245,17 @@ def _impact_corr(mid_prices: np.ndarray, signed_flow: np.ndarray, horizon: int) 
     future_move = mid_prices[horizon:] - mid_prices[horizon - 1 : -1]
     response = _corr(signed_flow[:-horizon], future_move)
     return abs(response)
+
+
+def _sign_agreement(lhs: np.ndarray, rhs: np.ndarray) -> float:
+    if lhs.size == 0 or rhs.size == 0:
+        return 0.0
+    lhs_sign = np.sign(lhs)
+    rhs_sign = np.sign(rhs)
+    mask = (lhs_sign != 0.0) & (rhs_sign != 0.0)
+    if not np.any(mask):
+        return 0.0
+    return float(np.mean(lhs_sign[mask] == rhs_sign[mask]))
 
 
 def _median_runs(runs: list[int]) -> float:
