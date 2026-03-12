@@ -13,14 +13,8 @@ from orderwave.book import AggressorSide, BookSide, OrderBook
 from orderwave.config import MarketConfig, coerce_config
 from orderwave.history import HistoryBuffer
 from orderwave.utils import bounded_int, clamp, compute_depth_imbalance, price_to_tick, tick_to_price
-from orderwave.visualization import (
-    VisualHistoryStore,
-    plot_market_overview,
-    plot_order_book,
-)
-from orderwave.visualization import (
-    plot_heatmap as render_heatmap,
-)
+from orderwave.visualization import VisualHistoryStore, plot_market_overview, plot_order_book
+from orderwave.visualization import plot_heatmap as render_heatmap
 
 CaptureMode = Literal["summary", "visual"]
 
@@ -45,58 +39,44 @@ class _SummaryState:
     center_tick: int
 
 
+@dataclass(frozen=True)
+class _SideObservables:
+    depth: np.ndarray
+    log_depth: np.ndarray
+    occupancy: np.ndarray
+    shortage: np.ndarray
+    neighbor_log: np.ndarray
+    support: float
+    front_depth: float
+    connectedness: float
+    touch_shortage: float
+
+
 @dataclass
 class _LatentState:
     total_liquidity_log: float
-    side_bias: float
-    flow_bias: float
-    latent_fair_offset: float
+    side_budget: float
+    execution_state: float
+    resilience: float
     realized_flow_memory: float
-    bid_field: np.ndarray
-    ask_field: np.ndarray
+    bid_mix: np.ndarray
+    ask_mix: np.ndarray
+    bid_mass: np.ndarray
+    ask_mass: np.ndarray
 
 
 @dataclass(frozen=True)
 class _LatentParams:
-    liquidity_persistence: float = 0.95
-    liquidity_noise: float = 0.12
-    side_persistence: float = 0.92
-    side_noise: float = 0.08
-    flow_persistence: float = 0.95
-    flow_noise: float = 0.10
-    flow_feedback: float = 0.52
-    fair_coupling: float = 0.06
-    offset_persistence: float = 0.95
-    offset_noise: float = 0.08
-    field_persistence: float = 0.88
-    field_diffusion: float = 0.24
-    field_noise: float = 0.12
-    field_tilt_scale: float = 0.08
-    side_share_amplitude: float = 0.06
-    budget_scale: float = 1.10
-    shortage_budget_scale: float = 0.92
-    connectivity_scale: float = 0.26
-    queue_gap_scale: float = 0.68
-    queue_penalty_scale: float = 0.08
-    cox_shape: float = 2.8
-    cancel_intercept: float = -2.65
-    cancel_rate_scale: float = 1.25
-    cancel_adverse_scale: float = 0.32
-    cancel_support_scale: float = 0.42
-    cancel_shortage_scale: float = 1.40
-    cancel_depth_scale: float = 0.10
-    cancel_queue_scale: float = 0.05
-    market_base_scale: float = 0.85
-    market_signal_scale: float = 1.10
-    market_cox_shape: float = 2.6
-    market_size_scale: float = 0.95
-    market_size_flow_scale: float = 0.26
-    memory_persistence: float = 0.88
-    safety_qty_scale: float = 0.75
+    state_persistence: float = 0.92
+    state_noise: float = 0.10
+    mix_persistence: float = 0.86
+    mass_persistence: float = 0.82
+    mass_diffusion: float = 0.24
+    cox_shape: float = 3.0
 
 
 class Market:
-    """Aggregate order-book simulator with latent-liquidity Cox dynamics."""
+    """Aggregate order-book simulator driven by dynamic latent distribution synthesis."""
 
     def __init__(
         self,
@@ -134,10 +114,25 @@ class Market:
         )
         self._book_capacity = self._depth_cells
         self._grid: np.ndarray = np.arange(self._depth_cells, dtype=float)
-        self._base_profile: np.ndarray = np.power(self.config.level_decay, self._grid)
-        self._shape_tilt: np.ndarray = (1.0 / (1.0 + (0.35 * self._grid))) - 0.25
-        self._support_weights: np.ndarray = np.exp(-0.60 * self._grid)
-        self._profile_target: np.ndarray = 0.90 + (2.80 * self._base_profile)
+        self._grid_norm = self._grid / max(float(self._depth_cells - 1), 1.0)
+        self._base_profile = np.power(self.config.level_decay, self._grid)
+        self._near_kernel = _normalize_positive(self._base_profile)
+        mid_center = float(self.levels)
+        mid_width = max(float(self.levels) / 2.0, 1.0)
+        far_center = min(
+            float(self._depth_cells - 1),
+            float(self.levels + self.config.max_spread_ticks + self.config.max_fair_move_ticks),
+        )
+        far_width = max(float(self.config.max_spread_ticks + self.config.max_fair_move_ticks), 1.0)
+        self._front_basis = self._near_kernel
+        self._mid_basis = _normalize_positive(np.exp(-0.5 * np.square((self._grid - mid_center) / mid_width)))
+        self._far_basis = _normalize_positive(np.exp(-0.5 * np.square((self._grid - far_center) / far_width)))
+        self._touch_horizon = min(
+            self._depth_cells,
+            self.levels + self.config.max_spread_ticks + self.config.max_fair_move_ticks,
+        )
+        self._touch_weights = _normalize_positive(self._front_basis[: self._touch_horizon])
+        self._profile_target = self._base_profile / (1.0 + self._base_profile)
 
         self._visible_bid: np.ndarray = np.zeros(self._depth_cells, dtype=np.int64)
         self._visible_ask: np.ndarray = np.zeros(self._depth_cells, dtype=np.int64)
@@ -184,13 +179,9 @@ class Market:
         }
 
     def get_history(self) -> pd.DataFrame:
-        """Return the summary history as a ``pandas.DataFrame``."""
-
         return self._history.dataframe()
 
     def step(self) -> dict[str, object]:
-        """Advance the simulator by one step and return the new snapshot."""
-
         self._step += 1
         self._buy_aggr_volume = 0.0
         self._sell_aggr_volume = 0.0
@@ -199,29 +190,46 @@ class Market:
         fair_gap = self._advance_latent_state(state)
         bid_mean, ask_mean = self._latent_reveal_means(fair_gap, state.depth_imbalance)
         self._apply_cancel_thinning(fair_gap, bid_mean, ask_mean)
-        self._apply_limit_reveals(bid_mean, ask_mean)
-        self._apply_market_flow(fair_gap, bid_mean, ask_mean)
+        pre_refill_scale = float(
+            _sigmoid(
+                _mean_signal(
+                    self._spread_component(state.spread_ticks),
+                    self._side_observables(self._visible_bid).touch_shortage,
+                    self._side_observables(self._visible_ask).touch_shortage,
+                )
+            )
+        )
+        self._apply_limit_reveals(bid_mean, ask_mean, scale=pre_refill_scale)
+        self._apply_market_flow(fair_gap, state.depth_imbalance)
         self._repair_visible_arrays()
         self._recenter_visible_arrays()
+
         post_state = self._visible_state()
         post_fair_gap = self._fair_gap(post_state.mid_tick)
         post_bid_mean, post_ask_mean = self._latent_reveal_means(post_fair_gap, post_state.depth_imbalance)
-        self._apply_limit_reveals(post_bid_mean, post_ask_mean, scale=0.65)
+        refill_scale = float(
+            _sigmoid(
+                _mean_signal(
+                    self._latent.resilience,
+                    self._spread_component(post_state.spread_ticks),
+                    self._side_observables(self._visible_bid).touch_shortage,
+                    self._side_observables(self._visible_ask).touch_shortage,
+                )
+            )
+        )
+        self._apply_limit_reveals(post_bid_mean, post_ask_mean, scale=refill_scale)
         self._repair_visible_arrays()
+        self._recenter_visible_arrays()
         self._sync_book_from_visible()
         self._record_state()
         return self.get()
 
     def gen(self, steps: int) -> dict[str, object]:
-        """Run ``steps`` iterations and return the final snapshot."""
-
         for _ in range(self._coerce_steps(steps)):
             self.step()
         return self.get()
 
     def run(self, steps: int) -> SimulationResult:
-        """Run ``steps`` iterations and return both snapshot and history."""
-
         snapshot = self.gen(steps)
         return SimulationResult(snapshot=snapshot, history=self.get_history())
 
@@ -233,8 +241,6 @@ class Market:
         title: str | None = None,
         figsize: tuple[float, float] | None = None,
     ):
-        """Render the overview plot with a level-ranked heatmap."""
-
         store = self._require_visual_capture()
         return plot_market_overview(
             self.get_history(),
@@ -255,8 +261,6 @@ class Market:
         title: str | None = None,
         figsize: tuple[float, float] | None = None,
     ):
-        """Render a standalone heatmap from captured visual history."""
-
         store = self._require_visual_capture()
         return render_heatmap(
             store,
@@ -275,8 +279,6 @@ class Market:
         title: str | None = None,
         figsize: tuple[float, float] | None = None,
     ):
-        """Render the current order book."""
-
         return plot_order_book(
             self._book,
             tick_size=self.tick_size,
@@ -286,23 +288,27 @@ class Market:
         )
 
     def _initial_latent_state(self) -> _LatentState:
-        common_field = 0.06 * self._rng.normal(size=self._depth_cells)
-        bid_field = common_field + (0.02 * self._rng.normal(size=self._depth_cells))
-        ask_field = common_field + (0.02 * self._rng.normal(size=self._depth_cells))
+        common_mix = 0.05 * self._rng.normal(size=3)
+        bid_mix = common_mix + (0.02 * self._rng.normal(size=3))
+        ask_mix = common_mix + (0.02 * self._rng.normal(size=3))
+        bid_mass = _normalize_positive(self._front_basis * np.exp(0.05 * self._rng.normal(size=self._depth_cells)))
+        ask_mass = _normalize_positive(self._front_basis * np.exp(0.05 * self._rng.normal(size=self._depth_cells)))
         return _LatentState(
             total_liquidity_log=0.0,
-            side_bias=0.0,
-            flow_bias=0.0,
-            latent_fair_offset=0.0,
+            side_budget=0.0,
+            execution_state=0.0,
+            resilience=0.0,
             realized_flow_memory=0.0,
-            bid_field=bid_field.astype(float),
-            ask_field=ask_field.astype(float),
+            bid_mix=bid_mix.astype(float),
+            ask_mix=ask_mix.astype(float),
+            bid_mass=bid_mass.astype(float),
+            ask_mass=ask_mass.astype(float),
         )
 
     def _seed_visible_book(self) -> None:
         bid_mean, ask_mean = self._latent_reveal_means(0.0, 0.0)
-        self._visible_bid = np.asarray(self._rng.poisson(bid_mean * 1.20), dtype=np.int64)
-        self._visible_ask = np.asarray(self._rng.poisson(ask_mean * 1.20), dtype=np.int64)
+        self._visible_bid = np.asarray(self._rng.poisson(bid_mean * 1.40), dtype=np.int64)
+        self._visible_ask = np.asarray(self._rng.poisson(ask_mean * 1.40), dtype=np.int64)
         self._repair_visible_arrays()
         self._recenter_visible_arrays()
 
@@ -388,186 +394,220 @@ class Market:
 
     def _advance_latent_state(self, state: _SummaryState) -> float:
         params = self._params
-        fair_gap = self._fair_gap(state.mid_tick)
+        bid_obs = self._side_observables(self._visible_bid)
+        ask_obs = self._side_observables(self._visible_ask)
         spread_component = self._spread_component(state.spread_ticks)
-        bid_support = self._side_support(self._visible_bid)
-        ask_support = self._side_support(self._visible_ask)
-        support_imbalance = _continuous_imbalance(bid_support, ask_support)
-        mean_support = 0.5 * (bid_support + ask_support)
-        target_support = 1.15 + (0.22 * self.config.limit_rate)
+        depth_imbalance = _continuous_imbalance(bid_obs.front_depth, ask_obs.front_depth)
+        support_imbalance = _continuous_imbalance(bid_obs.support, ask_obs.support)
+        shortage_imbalance = bid_obs.touch_shortage - ask_obs.touch_shortage
+        avg_shortage = 0.5 * (bid_obs.touch_shortage + ask_obs.touch_shortage)
+        avg_front = 0.5 * (bid_obs.front_depth + ask_obs.front_depth)
+        front_target = max(float(self.levels) + self.config.limit_rate, 1.0)
+        front_gap = clamp((front_target - avg_front) / front_target, -1.0, 1.0)
 
-        self._latent.total_liquidity_log = (
-            (params.liquidity_persistence * self._latent.total_liquidity_log)
-            + (0.18 * clamp((target_support - mean_support) / max(target_support, 1.0), -1.0, 1.0))
-            - (0.04 * spread_component)
-            + float(self._rng.normal(0.0, params.liquidity_noise))
-        )
-        self._latent.flow_bias = clamp(
-            (params.flow_persistence * self._latent.flow_bias)
-            + (params.flow_feedback * self._latent.realized_flow_memory)
-            + (params.fair_coupling * fair_gap)
-            + float(self._rng.normal(0.0, params.flow_noise)),
-            -2.0,
-            2.0,
-        )
-        self._latent.side_bias = clamp(
-            (params.side_persistence * self._latent.side_bias)
-            + (0.06 * fair_gap)
-            + (0.08 * self._latent.flow_bias)
-            + float(self._rng.normal(0.0, params.side_noise)),
+        self._latent.total_liquidity_log = clamp(
+            (params.state_persistence * self._latent.total_liquidity_log)
+            + _mean_signal(front_gap, avg_shortage, -spread_component)
+            + float(self._rng.normal(0.0, params.state_noise)),
             -1.25,
             1.25,
         )
-        self._latent.latent_fair_offset = clamp(
-            (params.offset_persistence * self._latent.latent_fair_offset)
-            + (0.03 * self._latent.flow_bias)
-            + float(self._rng.normal(0.0, params.offset_noise)),
-            -float(self.config.max_fair_move_ticks) * 1.5,
-            float(self.config.max_fair_move_ticks) * 1.5,
+        self._latent.side_budget = clamp(
+            (params.state_persistence * self._latent.side_budget)
+            + _mean_signal(shortage_imbalance, -depth_imbalance, -support_imbalance)
+            + float(self._rng.normal(0.0, params.state_noise)),
+            -1.5,
+            1.5,
         )
 
-        drift_signal = (0.12 * fair_gap) - (0.08 * support_imbalance)
-        drift = params.field_tilt_scale * drift_signal * self._shape_tilt
-        self._latent.bid_field = self._advance_field(self._latent.bid_field, drift)
-        self._latent.ask_field = self._advance_field(self._latent.ask_field, drift)
-        common_field = 0.5 * (self._latent.bid_field + self._latent.ask_field)
-        self._latent.bid_field = (0.84 * self._latent.bid_field) + (0.16 * common_field)
-        self._latent.ask_field = (0.84 * self._latent.ask_field) + (0.16 * common_field)
+        fair_gap = self._fair_gap(state.mid_tick)
+        self._latent.execution_state = clamp(
+            (params.state_persistence * self._latent.execution_state)
+            + _mean_signal(fair_gap, -depth_imbalance, -self._latent.realized_flow_memory)
+            + float(self._rng.normal(0.0, params.state_noise)),
+            -2.0,
+            2.0,
+        )
+        self._latent.resilience = clamp(
+            (params.state_persistence * self._latent.resilience)
+            + _mean_signal(avg_shortage, spread_component, abs(self._latent.realized_flow_memory))
+            - 1.0
+            + float(self._rng.normal(0.0, params.state_noise)),
+            -1.25,
+            2.25,
+        )
 
-        fair_anchor = state.mid_tick + self._latent.latent_fair_offset
-        reversion = self.config.mean_reversion * (fair_anchor - self._fair_tick)
-        shock = float(self._rng.normal(0.0, self.config.fair_price_vol))
         move = clamp(
-            reversion + (0.05 * self._latent.flow_bias) + shock,
+            (self.config.mean_reversion * (state.mid_tick - self._fair_tick))
+            + float(self._rng.normal(0.0, self.config.fair_price_vol)),
             -float(self.config.max_fair_move_ticks),
             float(self.config.max_fair_move_ticks),
         )
         self._fair_tick += move
+
+        self._latent.bid_mix = self._advance_mix_state(self._latent.bid_mix, bid_obs)
+        self._latent.ask_mix = self._advance_mix_state(self._latent.ask_mix, ask_obs)
+        self._latent.bid_mass = self._advance_mass_distribution(self._latent.bid_mass, self._latent.bid_mix, bid_obs)
+        self._latent.ask_mass = self._advance_mass_distribution(self._latent.ask_mass, self._latent.ask_mix, ask_obs)
         return self._fair_gap(state.mid_tick)
 
-
-    def _advance_field(self, field: np.ndarray, drift: np.ndarray) -> np.ndarray:
+    def _advance_mix_state(self, mix_state: np.ndarray, obs: _SideObservables) -> np.ndarray:
         params = self._params
-        neighbor = np.empty_like(field)
-        neighbor[0] = field[1]
-        neighbor[-1] = field[-2]
-        neighbor[1:-1] = 0.5 * (field[:-2] + field[2:])
-        noise = self._rng.normal(0.0, params.field_noise, size=self._depth_cells)
-        advanced = (
-            params.field_persistence * field
-            + params.field_diffusion * (neighbor - field)
-            + drift
-            + noise
+        drive = np.asarray(
+            [
+                float(np.dot(self._front_basis, obs.shortage)),
+                float(np.dot(self._mid_basis, obs.shortage)),
+                float(np.dot(self._far_basis, obs.shortage)),
+            ],
+            dtype=float,
         )
-        return np.clip(advanced, -3.0, 3.0)
+        regime = np.asarray(
+            [
+                max(self._latent.resilience, 0.0),
+                0.0,
+                max(-self._latent.resilience, 0.0),
+            ],
+            dtype=float,
+        )
+        centered = (drive + regime) - np.mean(drive + regime)
+        noise = self._rng.normal(0.0, params.state_noise, size=3)
+        return np.clip((params.mix_persistence * mix_state) + centered + noise, -3.0, 3.0)
 
-    def _side_support(self, visible: np.ndarray) -> float:
-        horizon = min(self.levels + 3, self._depth_cells)
-        support = self._support_weights[:horizon] * np.log1p(visible[:horizon].astype(float))
-        return float(np.sum(support))
+    def _advance_mass_distribution(
+        self,
+        mass: np.ndarray,
+        mix_state: np.ndarray,
+        obs: _SideObservables,
+    ) -> np.ndarray:
+        params = self._params
+        target = self._mass_target(obs, mix_state)
+        noisy_target = target * np.exp(self._rng.normal(0.0, params.state_noise, size=self._depth_cells))
+        neighbor = _neighbor_mean(mass)
+        advanced = (
+            (params.mass_persistence * mass)
+            + (params.mass_diffusion * neighbor)
+            + ((1.0 - params.mass_persistence) * noisy_target)
+        )
+        return _normalize_positive(advanced)
 
-    def _side_shortages(self) -> tuple[float, float]:
-        target_support = 1.05 + (0.18 * self.config.limit_rate)
-        bid_support = self._side_support(self._visible_bid)
-        ask_support = self._side_support(self._visible_ask)
-        bid_support_shortage = clamp((target_support - bid_support) / max(target_support, 1.0), -0.55, 1.25)
-        ask_support_shortage = clamp((target_support - ask_support) / max(target_support, 1.0), -0.55, 1.25)
+    def _side_observables(self, visible: np.ndarray) -> _SideObservables:
+        depth: np.ndarray = visible.astype(float)
+        log_depth = np.log1p(depth)
+        occupancy = depth / (1.0 + depth)
+        shortage = np.clip(
+            (self._profile_target - occupancy) / np.maximum(self._profile_target, 1e-9),
+            0.0,
+            1.5,
+        )
+        neighbor_log = self._neighbor_log_support(log_depth)
+        support = float(np.sum(self._touch_weights * log_depth[: self._touch_horizon]))
+        front_depth = float(np.sum(depth[: self.levels]))
+        if self._touch_horizon <= 1:
+            connectedness = 0.0
+        else:
+            connected_pairs = np.sqrt(
+                np.clip(
+                    occupancy[: self._touch_horizon - 1] * occupancy[1 : self._touch_horizon],
+                    0.0,
+                    1.0,
+                )
+            )
+            connectedness = float(np.mean(connected_pairs))
+        touch_shortage = float(np.sum(self._touch_weights * shortage[: self._touch_horizon]))
+        return _SideObservables(
+            depth=depth,
+            log_depth=log_depth,
+            occupancy=occupancy,
+            shortage=shortage,
+            neighbor_log=neighbor_log,
+            support=support,
+            front_depth=front_depth,
+            connectedness=connectedness,
+            touch_shortage=touch_shortage,
+        )
 
-        bid_occupancy = float(np.sum(1.0 - np.exp(-self._visible_bid.astype(float) / 2.5)))
-        ask_occupancy = float(np.sum(1.0 - np.exp(-self._visible_ask.astype(float) / 2.5)))
-        occupancy_imbalance = _continuous_imbalance(bid_occupancy, ask_occupancy)
-
-        bid_shortage = clamp((0.78 * bid_support_shortage) - (0.42 * occupancy_imbalance), -0.65, 1.25)
-        ask_shortage = clamp((0.78 * ask_support_shortage) + (0.42 * occupancy_imbalance), -0.65, 1.25)
-        return float(bid_shortage), float(ask_shortage)
-
-    def _neighbor_log_support(self, log_visible: np.ndarray) -> np.ndarray:
-        neighbor = np.empty_like(log_visible)
-        neighbor[0] = log_visible[1]
-        neighbor[-1] = log_visible[-2]
-        neighbor[1:-1] = 0.5 * (log_visible[:-2] + log_visible[2:])
+    def _neighbor_log_support(self, log_depth: np.ndarray) -> np.ndarray:
+        neighbor = np.empty_like(log_depth)
+        neighbor[0] = log_depth[1]
+        neighbor[-1] = log_depth[-2]
+        neighbor[1:-1] = 0.5 * (log_depth[:-2] + log_depth[2:])
         return neighbor
 
-    def _latent_side_budget(self, base_budget: float, shortage: float, skew: float) -> float:
-        multiplier = 1.0 + (self._params.shortage_budget_scale * shortage) + (self._params.side_share_amplitude * skew)
-        return base_budget * clamp(multiplier, 0.70, 1.75)
+    def _mixture_profile(self, mix_state: np.ndarray) -> np.ndarray:
+        weights = _normalize_positive(np.exp(np.clip(mix_state - np.max(mix_state), -20.0, 20.0)))
+        profile = (
+            (weights[0] * self._front_basis)
+            + (weights[1] * self._mid_basis)
+            + (weights[2] * self._far_basis)
+        )
+        return _normalize_positive(profile)
 
-    def _cell_scores(self, visible: np.ndarray, field: np.ndarray, shortage: float) -> np.ndarray:
-        log_visible = np.log1p(visible.astype(float))
-        gap_target = self._profile_target * (1.0 + (0.35 * max(shortage, 0.0)))
-        gap = np.clip(np.log1p(gap_target) - log_visible, -1.5, 1.5)
-        neighbor = self._neighbor_log_support(log_visible)
+    def _mass_target(self, obs: _SideObservables, mix_state: np.ndarray) -> np.ndarray:
+        basis = self._mixture_profile(mix_state)
+        shortage = _normalize_positive(obs.shortage + 1e-12)
+        front_shortage = _normalize_positive((1.0 + obs.shortage) * self._front_basis)
+        return _normalize_positive(basis + shortage + front_shortage)
+
+    def _latent_reveal_means(self, fair_gap: float, depth_imbalance: float) -> tuple[np.ndarray, np.ndarray]:
+        bid_obs = self._side_observables(self._visible_bid)
+        ask_obs = self._side_observables(self._visible_ask)
+        liquidity_state = clamp(
+            self._latent.total_liquidity_log + _mean_signal(bid_obs.touch_shortage, ask_obs.touch_shortage),
+            -1.0,
+            1.0,
+        )
+        base_budget = self.config.limit_rate * float(np.exp(liquidity_state))
+        split = float(_sigmoid(_mean_signal(self._latent.side_budget, -depth_imbalance, fair_gap)))
+
+        bid_budget = base_budget * split * float(np.exp(clamp(bid_obs.touch_shortage, 0.0, 1.0)))
+        ask_budget = base_budget * (1.0 - split) * float(np.exp(clamp(ask_obs.touch_shortage, 0.0, 1.0)))
+
+        bid_score = self._cell_scores(bid_obs, self._latent.bid_mass)
+        ask_score = self._cell_scores(ask_obs, self._latent.ask_mass)
+        bid_mean = bid_budget * (bid_score / np.sum(bid_score))
+        ask_mean = ask_budget * (ask_score / np.sum(ask_score))
+        bid_mean = bid_mean * self._rng.gamma(self._params.cox_shape, 1.0 / self._params.cox_shape, size=self._depth_cells)
+        ask_mean = ask_mean * self._rng.gamma(self._params.cox_shape, 1.0 / self._params.cox_shape, size=self._depth_cells)
+        return bid_mean.astype(float), ask_mean.astype(float)
+
+    def _cell_scores(self, obs: _SideObservables, mass: np.ndarray) -> np.ndarray:
         score = (
-            self._base_profile
-            * np.exp(np.clip(field, -2.0, 2.0))
-            * np.exp(
-                (self._params.queue_gap_scale * gap)
-                + (self._params.connectivity_scale * neighbor)
-                - (self._params.queue_penalty_scale * log_visible)
-            )
+            mass
+            * np.exp(np.clip(obs.shortage, 0.0, 1.0))
+            * (1.0 + np.maximum(obs.neighbor_log, 0.0))
+            / (1.0 + obs.log_depth)
         )
         return np.maximum(score, 1e-9)
 
-    def _latent_reveal_means(self, fair_gap: float, depth_imbalance: float) -> tuple[np.ndarray, np.ndarray]:
-        params = self._params
-        base_budget = (
-            params.budget_scale
-            * self.config.limit_rate
-            * float(np.exp(np.clip(self._latent.total_liquidity_log, -0.9, 0.9)))
-        )
-        bid_shortage, ask_shortage = self._side_shortages()
-        split_signal = clamp((0.12 * self._latent.side_bias) + (0.16 * fair_gap) - (0.35 * depth_imbalance), -2.0, 2.0)
-        skew = np.tanh(0.5 * split_signal)
-
-        bid_budget = self._latent_side_budget(base_budget, bid_shortage, float(skew))
-        ask_budget = self._latent_side_budget(base_budget, ask_shortage, float(-skew))
-        common_field = 0.5 * (self._latent.bid_field + self._latent.ask_field)
-        bid_field = (0.75 * common_field) + (0.25 * self._latent.bid_field)
-        ask_field = (0.75 * common_field) + (0.25 * self._latent.ask_field)
-        bid_score = self._cell_scores(self._visible_bid, bid_field, bid_shortage)
-        ask_score = self._cell_scores(self._visible_ask, ask_field, ask_shortage)
-        bid_mean = bid_budget * (bid_score / np.sum(bid_score))
-        ask_mean = ask_budget * (ask_score / np.sum(ask_score))
-
-        bid_mean = bid_mean * self._rng.gamma(params.cox_shape, 1.0 / params.cox_shape, size=self._depth_cells)
-        ask_mean = ask_mean * self._rng.gamma(params.cox_shape, 1.0 / params.cox_shape, size=self._depth_cells)
-        return bid_mean.astype(float), ask_mean.astype(float)
-
-
     def _apply_cancel_thinning(self, fair_gap: float, bid_mean: np.ndarray, ask_mean: np.ndarray) -> None:
-        bid_shortage, ask_shortage = self._side_shortages()
-        cancel_norm = self.config.cancel_rate / float(self.config.cancel_rate + self.config.limit_rate)
-        latent_imbalance = _continuous_imbalance(float(np.sum(bid_mean[:4])), float(np.sum(ask_mean[:4])))
-        depth_term = self._grid / max(float(self._depth_cells - 1), 1.0)
-
-        bid_adverse = clamp(
-            -(0.45 * self._latent.flow_bias) - (0.25 * fair_gap) - (0.15 * latent_imbalance),
-            -2.5,
-            2.5,
+        bid_obs = self._side_observables(self._visible_bid)
+        ask_obs = self._side_observables(self._visible_ask)
+        depth_term = self._grid_norm
+        latent_imbalance = _continuous_imbalance(
+            float(np.sum(bid_mean[: self.levels])),
+            float(np.sum(ask_mean[: self.levels])),
         )
-        ask_adverse = clamp(
-            (0.45 * self._latent.flow_bias) + (0.25 * fair_gap) + (0.15 * latent_imbalance),
-            -2.5,
-            2.5,
-        )
+        adverse_signal = float(np.tanh(self._latent.execution_state + fair_gap + latent_imbalance))
+        baseline = float(np.log(self.config.cancel_rate / self.config.limit_rate))
+        resilience_buffer = max(self._latent.resilience, 0.0)
 
         bid_signal = (
-            self._params.cancel_intercept
-            + (self._params.cancel_rate_scale * cancel_norm)
-            + (self._params.cancel_adverse_scale * bid_adverse)
-            + (self._params.cancel_depth_scale * depth_term)
-            + (self._params.cancel_queue_scale * np.log1p(self._visible_bid.astype(float)))
-            - (self._params.cancel_support_scale * np.log1p(bid_mean + 1.0))
-            - (self._params.cancel_shortage_scale * bid_shortage)
+            baseline
+            - adverse_signal
+            + (depth_term - np.mean(depth_term))
+            + bid_obs.log_depth
+            - np.log1p(bid_mean)
+            - bid_obs.shortage
+            - resilience_buffer
         )
         ask_signal = (
-            self._params.cancel_intercept
-            + (self._params.cancel_rate_scale * cancel_norm)
-            + (self._params.cancel_adverse_scale * ask_adverse)
-            + (self._params.cancel_depth_scale * depth_term)
-            + (self._params.cancel_queue_scale * np.log1p(self._visible_ask.astype(float)))
-            - (self._params.cancel_support_scale * np.log1p(ask_mean + 1.0))
-            - (self._params.cancel_shortage_scale * ask_shortage)
+            baseline
+            + adverse_signal
+            + (depth_term - np.mean(depth_term))
+            + ask_obs.log_depth
+            - np.log1p(ask_mean)
+            - ask_obs.shortage
+            - resilience_buffer
         )
 
         bid_cancel = self._rng.binomial(self._visible_bid, _sigmoid(bid_signal))
@@ -575,59 +615,49 @@ class Market:
         self._visible_bid = np.maximum(0, self._visible_bid - bid_cancel)
         self._visible_ask = np.maximum(0, self._visible_ask - ask_cancel)
 
-
     def _apply_limit_reveals(self, bid_mean: np.ndarray, ask_mean: np.ndarray, *, scale: float = 1.0) -> None:
+        reveal_scale = max(scale, 0.0)
         self._visible_bid = self._visible_bid + np.asarray(
-            self._rng.poisson(bid_mean * max(scale, 0.0)),
+            self._rng.poisson(bid_mean * reveal_scale),
             dtype=np.int64,
         )
         self._visible_ask = self._visible_ask + np.asarray(
-            self._rng.poisson(ask_mean * max(scale, 0.0)),
+            self._rng.poisson(ask_mean * reveal_scale),
             dtype=np.int64,
         )
 
-    def _apply_market_flow(self, fair_gap: float, bid_mean: np.ndarray, ask_mean: np.ndarray) -> None:
-        visible_imbalance = _continuous_imbalance(self._side_support(self._visible_bid), self._side_support(self._visible_ask))
-        latent_imbalance = _continuous_imbalance(
-            float(np.sum(bid_mean[:4] * self._support_weights[:4])),
-            float(np.sum(ask_mean[:4] * self._support_weights[:4])),
+    def _apply_market_flow(self, fair_gap: float, depth_imbalance: float) -> None:
+        spread_component = self._spread_component(self._visible_state().spread_ticks)
+        signal = float(
+            np.tanh(
+                _mean_signal(
+                    self._latent.execution_state,
+                    fair_gap,
+                    -depth_imbalance,
+                    self._latent.realized_flow_memory,
+                )
+            )
         )
-        signal = clamp(
-            (0.40 * fair_gap)
-            + (0.95 * self._latent.flow_bias)
-            + (0.30 * self._latent.realized_flow_memory)
-            - (0.14 * visible_imbalance)
-            - (0.10 * latent_imbalance),
-            -2.5,
-            2.5,
+        activity_state = float(
+            _mean_signal(abs(signal), -spread_component, max(-self._latent.resilience, 0.0))
         )
-        base_rate = self._params.market_base_scale * self.config.market_rate
-        activity = base_rate * _softplus(0.65 + (0.35 * abs(signal)))
-        activity *= (1.0 + (0.20 * abs(self._latent.realized_flow_memory)))
-        activity *= float(self._rng.gamma(self._params.market_cox_shape, 1.0 / self._params.market_cox_shape))
+        activity = self.config.market_rate * float(np.exp(activity_state - 0.5))
+        activity *= max(1.0 - spread_component, 1.0 / max(float(self.levels + 1), 1.0))
+        activity *= float(self._rng.gamma(self._params.cox_shape, 1.0 / self._params.cox_shape))
 
         total_count = int(self._rng.poisson(max(activity, 0.0)))
-        buy_share = float(_sigmoid((self._params.market_signal_scale + 0.30) * signal))
-        buy_count = int(self._rng.binomial(total_count, buy_share))
-        sell_count = max(0, total_count - buy_count)
-        sequence: list[AggressorSide] = []
-        if buy_count > 0 or sell_count > 0:
-            buy_first = (buy_count > sell_count) or (buy_count == sell_count and self._rng.random() < buy_share)
-            if buy_first:
-                sequence.extend(["buy"] * buy_count)
-                sequence.extend(["sell"] * sell_count)
-            else:
-                sequence.extend(["sell"] * sell_count)
-                sequence.extend(["buy"] * buy_count)
-
+        buy_prob = float(_sigmoid(signal))
         depth_before = max(
             1.0,
             float(np.sum(self._visible_bid[: self.levels])) + float(np.sum(self._visible_ask[: self.levels])),
         )
-        scale = self._params.market_size_scale + (self._params.market_size_flow_scale * abs(signal))
-        for aggressor in sequence:
-            front_depth = self._side_support(self._visible_ask if aggressor == "buy" else self._visible_bid)
-            qty = self._scaled_quantity(scale * _slice_liquidity_scale(front_depth, self.levels))
+
+        for _ in range(total_count):
+            aggressor: AggressorSide = "buy" if self._rng.random() < buy_prob else "sell"
+            opposing_visible = self._visible_ask if aggressor == "buy" else self._visible_bid
+            front_depth = float(np.sum(opposing_visible[: self.levels]))
+            qty_scale = _slice_liquidity_scale(front_depth, self.levels)
+            qty = self._scaled_quantity(qty_scale)
             filled = self._execute_market_order(aggressor, qty)
             if aggressor == "buy":
                 self._buy_aggr_volume += float(filled)
@@ -636,11 +666,10 @@ class Market:
 
         net_flow = (self._buy_aggr_volume - self._sell_aggr_volume) / depth_before
         self._latent.realized_flow_memory = clamp(
-            (self._params.memory_persistence * self._latent.realized_flow_memory) + (1.05 * net_flow),
-            -2.5,
-            2.5,
+            (self._params.state_persistence * self._latent.realized_flow_memory) + net_flow,
+            -2.0,
+            2.0,
         )
-
 
     def _execute_market_order(self, aggressor: AggressorSide, qty: int) -> int:
         remaining = int(qty)
@@ -671,7 +700,7 @@ class Market:
         visible = self._visible_bid if side == "bid" else self._visible_ask
         if np.any(visible > 0):
             return
-        visible[0] = max(visible[0], self._scaled_quantity(self._params.safety_qty_scale))
+        visible[0] = max(visible[0], self._sample_quantity())
 
     def _enforce_spread_cap(self) -> None:
         for _ in range(self.config.max_spread_ticks + 2):
@@ -686,14 +715,13 @@ class Market:
             target_bid = max(0, self.config.max_spread_ticks - ask_index - 1)
             target_ask = max(0, self.config.max_spread_ticks - bid_index - 1)
             if ask_index > bid_index:
-                self._visible_ask[target_ask] += self._scaled_quantity(self._params.safety_qty_scale)
+                self._visible_ask[target_ask] += self._sample_quantity()
             elif bid_index > ask_index:
-                self._visible_bid[target_bid] += self._scaled_quantity(self._params.safety_qty_scale)
+                self._visible_bid[target_bid] += self._sample_quantity()
+            elif self._fair_tick >= float(self._center_tick):
+                self._visible_bid[target_bid] += self._sample_quantity()
             else:
-                if self._fair_tick >= float(self._center_tick):
-                    self._visible_bid[target_bid] += self._scaled_quantity(self._params.safety_qty_scale)
-                else:
-                    self._visible_ask[target_ask] += self._scaled_quantity(self._params.safety_qty_scale)
+                self._visible_ask[target_ask] += self._sample_quantity()
 
     def _recenter_visible_arrays(self) -> None:
         bid_index = _first_positive_index(self._visible_bid)
@@ -731,26 +759,19 @@ class Market:
     def _spread_component(self, spread_ticks: int) -> float:
         if self.config.max_spread_ticks <= 1:
             return 0.0
-        return clamp(
-            (spread_ticks - 1) / float(self.config.max_spread_ticks - 1),
-            0.0,
-            1.5,
-        )
+        return clamp((spread_ticks - 1) / float(self.config.max_spread_ticks - 1), 0.0, 1.0)
 
     def _fair_gap(self, mid_tick: float) -> float:
-        return clamp(
-            (self._fair_tick - mid_tick) / float(self.config.max_fair_move_ticks),
-            -2.0,
-            2.0,
-        )
+        return clamp((self._fair_tick - mid_tick) / float(self.config.max_fair_move_ticks), -1.0, 1.0)
 
     def _sample_quantity(self) -> int:
         raw_value = float(self._rng.lognormal(self.config.size_mean, self.config.size_dispersion))
         return bounded_int(raw_value, self.config.min_order_qty, self.config.max_order_qty)
 
     def _scaled_quantity(self, scale: float) -> int:
+        scale_floor = 1.0 / max(float(self.config.max_order_qty), 1.0)
         return bounded_int(
-            round(self._sample_quantity() * max(scale, 0.20)),
+            round(self._sample_quantity() * max(scale, scale_floor)),
             self.config.min_order_qty,
             self.config.max_order_qty,
         )
@@ -772,9 +793,16 @@ def _sigmoid(values: np.ndarray | float) -> np.ndarray | float:
     return 1.0 / (1.0 + np.exp(-clipped))
 
 
-def _softplus(value: float) -> float:
-    clipped = clamp(value, -40.0, 40.0)
-    return float(np.log1p(np.exp(clipped)))
+def _normalize_positive(values: np.ndarray) -> np.ndarray:
+    clipped = np.maximum(values.astype(float), 1e-12)
+    total = float(np.sum(clipped))
+    if total <= 1e-12:
+        return np.full_like(clipped, 1.0 / max(clipped.size, 1), dtype=float)
+    return clipped / total
+
+
+def _mean_signal(*values: float) -> float:
+    return float(np.mean(np.asarray(values, dtype=float)))
 
 
 def _first_positive_index(values: np.ndarray) -> int | None:
@@ -813,22 +841,18 @@ def _shift_ask(values: np.ndarray, delta: int) -> np.ndarray:
     return shifted
 
 
-def _support_scale(values: np.ndarray) -> np.ndarray:
-    support = np.log1p(values.astype(float))
-    smoothed = np.empty_like(support)
-    smoothed[0] = support[0] + (0.55 * support[1])
-    smoothed[-1] = support[-1] + (0.55 * support[-2])
-    smoothed[1:-1] = (0.25 * support[:-2]) + support[1:-1] + (0.25 * support[2:])
-    mean_value = float(np.mean(smoothed))
-    if mean_value <= 1e-9:
-        return np.ones_like(smoothed)
-    normalized = smoothed / mean_value
-    return 0.72 + (0.28 * np.clip(normalized, 0.35, 2.40))
+def _neighbor_mean(values: np.ndarray) -> np.ndarray:
+    neighbor = np.empty_like(values, dtype=float)
+    neighbor[0] = values[1]
+    neighbor[-1] = values[-2]
+    neighbor[1:-1] = 0.5 * (values[:-2] + values[2:])
+    return neighbor
 
 
 def _slice_liquidity_scale(front_depth: float, levels: int) -> float:
     reference = max(float((2 * levels) + 2), 1.0)
-    return 0.40 + (0.60 * np.tanh(max(front_depth, 0.0) / reference))
+    ratio = max(front_depth, 0.0) / (reference + max(front_depth, 0.0))
+    return clamp(ratio, 1.0 / reference, 1.0)
 
 
 def _continuous_imbalance(lhs: float, rhs: float) -> float:

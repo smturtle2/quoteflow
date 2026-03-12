@@ -18,8 +18,8 @@
 ## Runtime 모델
 
 - 엔진은 aggregate-book 구조를 유지합니다. per-order FIFO queue는 시뮬레이션하지 않습니다.
-- 현실성은 latent-liquidity Cox kernel에서 나옵니다. hidden stochastic state가 total liquidity, side skew, flow bias, depth-cell shape를 먼저 만들고, 그 뒤 visible limit/cancel/market flow가 샘플링됩니다.
-- 얇아진 side의 회복은 hard floor가 아니라 shortage-aware reveal budget, connected queue scoring, cancel thinning이 연속적으로 반응하면서 만들어집니다.
+- 현실성은 latent distribution synthesis에서 나옵니다. hidden stochastic state가 total liquidity, side skew, side별 depth distribution을 먼저 합성하고, 그 뒤 visible limit/cancel/market flow가 샘플링됩니다.
+- 얇아진 side의 회복은 hard floor가 아니라 shortage distribution과 near-touch distribution이 다시 합성되면서 만들어집니다.
 - repair는 safety-only라서 visible hole과 delayed refill이 매 step 지워지지 않습니다.
 
 ## Plotting

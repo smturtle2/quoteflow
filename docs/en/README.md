@@ -18,8 +18,8 @@
 ## Runtime Model
 
 - The engine stays aggregate-book only. It does not simulate per-order FIFO queues.
-- Realism comes from a latent-liquidity Cox kernel. A hidden stochastic state controls total liquidity, side skew, flow bias, and depth-cell shape before visible limit/cancel/market events are sampled.
-- Thin-side recovery is shortage-driven and smooth: reveal budgets, connected queue scoring, and cancel thinning react continuously to shape deficits instead of using hard visible-level floors.
+- Realism comes from latent distribution synthesis. A hidden stochastic state combines total-liquidity, side-skew, and side-specific depth distributions before visible limit/cancel/market events are sampled.
+- Thin-side recovery is shortage-driven and smooth: shortage distributions and near-touch distributions are re-synthesized continuously instead of using hard visible-level floors.
 - Repair is safety-only, so visible holes and delayed refill can survive instead of being erased every step.
 
 ## Plotting

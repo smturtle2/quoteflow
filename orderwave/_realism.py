@@ -22,10 +22,14 @@ _IMPACT_HORIZONS = (1, 2, 5, 10)
 class RealismProfile:
     seed: int | None
     steps: int
+    normalized_net_drift: float
+    variance_ratio_5: float
+    variance_ratio_20: float
     one_tick_spread_share: float
     wide_spread_share: float
     spread_acf1: float
     trade_sign_acf1: float
+    trade_sign_acf5: float
     same_step_impact_corr: float
     next_step_impact_corr: float
     bid_gap_gt1_share_top5: float
@@ -121,10 +125,8 @@ def profile_market_realism(market: Market, *, steps: int) -> RealismProfile:
     signed_flow = (history["buy_aggr_volume"] - history["sell_aggr_volume"]).to_numpy(dtype=float)
     trade_sign = np.sign(signed_flow)
     mid_prices = history["mid_price"].to_numpy(dtype=float)
+    mid_ticks = mid_prices / market.tick_size
     mid_returns = history["mid_price"].diff().fillna(0.0).to_numpy(dtype=float)
-
-    valid_sign = (trade_sign[1:] != 0.0) & (trade_sign[:-1] != 0.0)
-    trade_sign_acf = _corr(trade_sign[1:][valid_sign], trade_sign[:-1][valid_sign]) if valid_sign.any() else 0.0
 
     bid_rank_array = np.asarray(bid_rank_depths, dtype=float) if bid_rank_depths else np.zeros((0, _RANK_COUNT), dtype=float)
     ask_rank_array = np.asarray(ask_rank_depths, dtype=float) if ask_rank_depths else np.zeros((0, _RANK_COUNT), dtype=float)
@@ -132,10 +134,14 @@ def profile_market_realism(market: Market, *, steps: int) -> RealismProfile:
     return RealismProfile(
         seed=market.seed,
         steps=int(steps),
+        normalized_net_drift=_normalized_net_drift(mid_ticks, int(steps)),
+        variance_ratio_5=_variance_ratio(mid_ticks, 5),
+        variance_ratio_20=_variance_ratio(mid_ticks, 20),
         one_tick_spread_share=float(np.mean(spread_ticks == 1.0)),
         wide_spread_share=float(np.mean(spread_ticks >= 4.0)),
-        spread_acf1=_autocorr1(spread_ticks),
-        trade_sign_acf1=trade_sign_acf,
+        spread_acf1=_autocorr(spread_ticks, 1),
+        trade_sign_acf1=_sign_autocorr(trade_sign, 1),
+        trade_sign_acf5=_sign_autocorr(trade_sign, 5),
         same_step_impact_corr=_corr(signed_flow[1:], mid_returns[1:]),
         next_step_impact_corr=_corr(signed_flow[:-1], mid_returns[1:]),
         bid_gap_gt1_share_top5=float(np.mean(bid_gap_flags)) if bid_gap_flags else 0.0,
@@ -256,10 +262,40 @@ def _safe_mean(values: list[float]) -> float:
     return float(np.mean(np.asarray(values, dtype=float)))
 
 
-def _autocorr1(values: np.ndarray) -> float:
-    if values.size < 2:
+def _normalized_net_drift(mid_ticks: np.ndarray, steps: int) -> float:
+    if mid_ticks.size <= 1:
         return 0.0
-    return _corr(values[1:], values[:-1])
+    return abs(float(mid_ticks[-1] - mid_ticks[0])) / float(max(int(steps), 1) ** 0.5)
+
+
+def _variance_ratio(mid_ticks: np.ndarray, horizon: int) -> float:
+    if mid_ticks.size <= horizon + 1:
+        return 0.0
+    step_move = np.diff(mid_ticks)
+    if step_move.size == 0:
+        return 0.0
+    step_var = float(np.var(step_move))
+    if step_var <= 1e-12:
+        return 0.0
+    horizon_move = mid_ticks[horizon:] - mid_ticks[:-horizon]
+    return float(np.var(horizon_move) / (float(horizon) * step_var))
+
+
+def _sign_autocorr(signs: np.ndarray, lag: int) -> float:
+    if signs.size <= lag:
+        return 0.0
+    current = signs[lag:]
+    previous = signs[:-lag]
+    valid = (current != 0.0) & (previous != 0.0)
+    if not valid.any():
+        return 0.0
+    return _corr(current[valid], previous[valid])
+
+
+def _autocorr(values: np.ndarray, lag: int) -> float:
+    if values.size <= lag:
+        return 0.0
+    return _corr(values[lag:], values[:-lag])
 
 
 def _corr(lhs: np.ndarray, rhs: np.ndarray) -> float:

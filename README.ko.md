@@ -2,7 +2,7 @@
 
 가독성 좋은 built-in heatmap을 포함한 compact aggregate order-book 시뮬레이터입니다.
 
-`orderwave`는 runtime 모델을 작게 유지합니다. sparse bid/ask book, bounded mean-reverting fair value, 그리고 큰 heuristic 트리 대신 latent-liquidity Cox kernel 하나로 hidden state에서 visible depth, cancel, market sweep을 확률적으로 드러냅니다.
+`orderwave`는 runtime 모델을 작게 유지합니다. sparse bid/ask book, bounded mean-reverting fair value, 그리고 큰 heuristic 트리 대신 여러 stochastic depth distribution을 합성하는 latent distribution-synthesis kernel로 visible liquidity를 드러내고 취소하고 sweep합니다.
 
 ![Overview](docs/assets/orderwave-built-in-overview.png)
 
@@ -78,8 +78,8 @@ History column:
 ## 모델
 
 - fair price는 약한 flow coupling이 섞인 bounded mean-reverting Gaussian process로 움직입니다.
-- hidden liquidity 상태가 먼저 진화하고, 그 상태에서 visible limit/cancel/market flow를 Cox-Poisson 계열 intensity로 샘플링합니다.
-- 얇아진 side의 회복은 hard floor가 아니라 shortage-aware reveal budget, connected queue score, smooth cancel thinning에서 나옵니다.
+- hidden liquidity는 hand-written rule tree가 아니라 stochastic distribution들의 합성으로 먼저 진화하고, 그 상태에서 visible limit/cancel/market flow가 Cox-Poisson 계열 intensity로 샘플링됩니다.
+- 얇아진 side의 회복은 hard floor가 아니라 shortage distribution과 near-touch distribution을 다시 합성하는 방식에서 나옵니다.
 - repair는 safety-only입니다. one-sided/crossed book과 spread cap만 다루고, visible rank를 보기 좋게 강제로 채우지는 않습니다.
 
 ## Realism 프로파일링

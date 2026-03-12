@@ -2,7 +2,7 @@
 
 Compact aggregate order-book simulation for Python, with readable built-in heatmaps.
 
-`orderwave` keeps the runtime model small: a sparse bid/ask book, bounded mean-reverting fair value, and a latent-liquidity Cox kernel that reveals, cancels, and sweeps aggregate depth from a stochastic hidden state instead of a large hand-written heuristic tree.
+`orderwave` keeps the runtime model small: a sparse bid/ask book, bounded mean-reverting fair value, and a latent distribution-synthesis kernel that combines stochastic depth distributions before revealing, canceling, and sweeping aggregate liquidity.
 
 ![Overview](docs/assets/orderwave-built-in-overview.png)
 
@@ -78,8 +78,8 @@ History columns:
 ## Model
 
 - Fair price follows a bounded mean-reverting Gaussian process with weak flow coupling.
-- Hidden liquidity evolves as a stochastic latent state: total liquidity, side skew, flow bias, and depth-cell fields move first, then visible limit/cancel/market flow is sampled from those states through Cox-Poisson style intensities.
-- Visible depth is not rebuilt with symptom-specific rules. Thin-side recovery comes from shortage-aware reveal budgets, connected queue scoring, and smooth cancel thinning rather than hard visible-level floors.
+- Hidden liquidity evolves as stochastic distributions rather than a hand-written rule tree. Total liquidity, side skew, flow pressure, and side-specific depth mixtures move first, then visible limit/cancel/market flow is sampled from those distributions through Cox-Poisson style intensities.
+- Visible depth is not rebuilt with symptom-specific rules. Thin-side recovery comes from dynamically synthesized shortage and near-touch distributions rather than hard visible-level floors.
 - Repair is safety-only: it prevents one-sided or crossed books and enforces the spread cap, but it does not cosmetically repad every visible rank.
 
 ## Realism Profiling

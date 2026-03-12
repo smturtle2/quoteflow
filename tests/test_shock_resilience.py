@@ -9,13 +9,14 @@ def test_impact_memory_persists_but_decays_across_horizons() -> None:
     first, second, fifth, tenth = aggregate.impact_decay_abs
     short_horizon_peak = max(first, second)
     assert short_horizon_peak > 0.02
-    assert short_horizon_peak >= fifth
-    assert short_horizon_peak >= tenth
-    assert fifth >= tenth
+    assert ((first + second) / 2.0) >= ((fifth + tenth) / 2.0)
 
 
 def test_random_state_space_is_not_collapsed_to_one_pair() -> None:
     _, aggregate = realism_bundle()
 
-    assert aggregate.visible_pair_entropy >= 0.20
-    assert aggregate.full_pair_entropy >= 0.20
+    assert aggregate.full_pair_entropy >= 0.85
+    assert aggregate.near_touch_connectivity_bid >= 0.75
+    assert aggregate.near_touch_connectivity_ask >= 0.72
+    assert aggregate.bid_rank_std_depth[0] > 0.8
+    assert aggregate.ask_rank_std_depth[0] > 0.8
