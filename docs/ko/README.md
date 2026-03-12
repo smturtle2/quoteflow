@@ -25,8 +25,9 @@ plot surface:
 
 Heatmap 의미:
 
-- `anchor="mid"`는 움직이는 시장 중심 기준으로 row를 정렬하므로 sweep/refill 구조를 읽기 좋습니다.
-- `anchor="price"`는 고정 기준 ladder를 유지하지만, y축은 계속 가격이 아니라 level 기준입니다.
+- heatmap row는 항상 `ask N ... ask 1 | bid 1 ... bid N` 순서의 고정 visible rank입니다.
+- y축은 가격으로 바뀌지 않고, 시장 가격이 움직여도 row가 위아래로 드리프트하지 않습니다.
+- `anchor="mid"`와 `anchor="price"`는 API 호환성 때문에 유지하지만, 둘 다 같은 고정 level-rank heatmap을 그립니다.
 - color는 robust asinh scaling이 적용된 signed depth라서 큰 wall 하나가 전체 contrast를 망치지 않습니다.
 
 ## 문서 이미지

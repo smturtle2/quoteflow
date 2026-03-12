@@ -35,11 +35,11 @@ book = market.plot_book()
 - `run(steps)`: return `SimulationResult(snapshot=..., history=...)`.
 - `get()`: return the current snapshot as a `dict`.
 - `get_history()`: return the summary history as a `pandas.DataFrame`.
-- `plot()`: render the price path with a mid-anchored signed-depth heatmap. Requires `capture="visual"`.
-- `plot_heatmap(anchor="mid" | "price")`: render a standalone heatmap on level coordinates. Requires `capture="visual"`.
+- `plot()`: render the price path with a stable level-ranked signed-depth heatmap. Requires `capture="visual"`.
+- `plot_heatmap(anchor="mid" | "price")`: render a standalone heatmap on stable level coordinates. Requires `capture="visual"`.
 - `plot_book()`: render the current order book.
 
-`capture="summary"` keeps the fast path lean. `capture="visual"` stores a fixed signed-depth window around the moving market center so the heatmap can show sweep, void, and refill structure clearly. Heatmap y-axes stay in level space rather than real prices.
+`capture="summary"` keeps the fast path lean. `capture="visual"` stores a fixed signed-depth window around the moving market center so the heatmap can show sweep, void, and refill structure clearly. Heatmap rows are always fixed visible ranks, laid out as `ask N ... ask 1 | bid 1 ... bid N`, so they do not drift vertically with price.
 
 ## Snapshot and History
 

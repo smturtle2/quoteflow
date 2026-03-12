@@ -37,8 +37,8 @@ def render_diagnostics(outdir: Path) -> None:
     figure = market.plot_heatmap(
         anchor="price",
         max_steps=900,
-        price_window_ticks=18,
-        title="Fixed-level signed depth heatmap",
+        price_window_ticks=12,
+        title="Stable level-ranked signed depth heatmap",
         figsize=(13.5, 7.5),
     )
     figure.savefig(outdir / "orderwave-built-in-diagnostics.png", dpi=180, bbox_inches="tight")

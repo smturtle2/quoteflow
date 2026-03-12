@@ -72,8 +72,6 @@ class HeatmapPayload:
     signed_depth: np.ndarray
     x_edges: np.ndarray
     y_edges: np.ndarray
-    best_bid_trace: np.ndarray
-    best_ask_trace: np.ndarray
     ylabel: str
     yticks: np.ndarray
     yticklabels: list[str]
@@ -146,7 +144,7 @@ def plot_heatmap(
         max_steps=max_steps,
         price_window_ticks=price_window_ticks,
     )
-    axis.set_title(title or ("Fixed-level heatmap" if anchor == "price" else "Mid-anchored heatmap"))
+    axis.set_title(title or "Level-ranked heatmap")
     return figure
 
 
@@ -237,10 +235,11 @@ def _draw_heatmap(
         vmax=vmax,
         shading="flat",
     )
-    axis.plot(data.steps, data.best_bid_trace, color="#1d4ed8", linewidth=0.9, alpha=0.90)
-    axis.plot(data.steps, data.best_ask_trace, color="#b91c1c", linewidth=0.9, alpha=0.90)
     axis.set_ylabel(data.ylabel)
     axis.grid(False)
+    midpoint = data.signed_depth.shape[0] / 2.0
+    axis.axhline(midpoint, color="#0f172a", linewidth=0.9, alpha=0.30)
+    axis.invert_yaxis()
 
     if data.yticks.size > 0:
         axis.set_yticks(data.yticks)
@@ -259,9 +258,6 @@ def _prepare_heatmap(
     price_window_ticks: int | None,
 ) -> HeatmapPayload:
     steps = store.steps_array()
-    centers = store.center_ticks_array()
-    best_bid = store.best_bid_ticks_array()
-    best_ask = store.best_ask_ticks_array()
     signed_depth = store.signed_depth_matrix()
 
     if signed_depth.shape[1] == 0:
@@ -270,91 +266,25 @@ def _prepare_heatmap(
     if max_steps > 0 and signed_depth.shape[1] > max_steps:
         groups = _downsample_groups(signed_depth.shape[1], max_steps)
         reduced_steps: np.ndarray = np.empty(len(groups), dtype=float)
-        reduced_centers: np.ndarray = np.empty(len(groups), dtype=float)
-        reduced_best_bid: np.ndarray = np.empty(len(groups), dtype=float)
-        reduced_best_ask: np.ndarray = np.empty(len(groups), dtype=float)
         reduced_matrix: np.ndarray = np.empty((signed_depth.shape[0], len(groups)), dtype=np.float32)
         for column_index, group in enumerate(groups):
             reduced_steps[column_index] = float(steps[group[-1]])
-            reduced_centers[column_index] = float(np.median(centers[group]))
-            reduced_best_bid[column_index] = float(np.median(best_bid[group]))
-            reduced_best_ask[column_index] = float(np.median(best_ask[group]))
             reduced_matrix[:, column_index] = _aggregate_signed_block(signed_depth[:, group])
         steps = reduced_steps.astype(float, copy=False)
-        centers = reduced_centers.astype(float, copy=False)
-        best_bid = reduced_best_bid.astype(float, copy=False)
-        best_ask = reduced_best_ask.astype(float, copy=False)
         signed_depth = reduced_matrix
     else:
         steps = steps.astype(float, copy=False)
-        centers = centers.astype(float, copy=False)
-        best_bid = best_bid.astype(float, copy=False)
-        best_ask = best_ask.astype(float, copy=False)
 
     max_window = store.depth_window_ticks
-    window = max_window if price_window_ticks is None else max(1, min(int(price_window_ticks), max_window))
-    offset_center = max_window
-    row_slice = slice(offset_center - window, offset_center + window + 1)
-    relative_matrix = signed_depth[row_slice]
-    relative_offsets: np.ndarray = np.arange(-window, window + 1, dtype=float)
-
-    if anchor == "mid":
-        y_edges = np.arange(-window - 0.5, window + 1.5, 1.0)
-        best_bid_trace = best_bid - centers
-        best_ask_trace = best_ask - centers
-        ytick_positions, ytick_labels = _sparse_tick_labels(relative_offsets, unit="")
-        return HeatmapPayload(
-            steps=steps,
-            signed_depth=relative_matrix,
-            x_edges=_step_edges(steps),
-            y_edges=y_edges,
-            best_bid_trace=best_bid_trace,
-            best_ask_trace=best_ask_trace,
-            ylabel="Levels",
-            yticks=ytick_positions,
-            yticklabels=ytick_labels,
-        )
-
-    if price_window_ticks is None:
-        absolute_ticks: np.ndarray = np.arange(
-            int(np.floor(np.min(centers))) - window,
-            int(np.ceil(np.max(centers))) + window + 1,
-            dtype=int,
-        )
-    else:
-        anchor_center = int(round(np.median(centers)))
-        absolute_ticks = np.arange(anchor_center - window, anchor_center + window + 1, dtype=int)
-    absolute_matrix: np.ndarray = np.full((absolute_ticks.size, steps.size), np.nan, dtype=np.float32)
-    for column_index in range(steps.size):
-        tick_base = int(round(float(centers[column_index]))) - window
-        column = relative_matrix[:, column_index]
-        for row_index, value in enumerate(column):
-            if np.isnan(value):
-                continue
-            absolute_tick = tick_base + row_index
-            target: int = absolute_tick - int(absolute_ticks[0])
-            if 0 <= target < absolute_matrix.shape[0]:
-                absolute_matrix[target, column_index] = value
-
-    anchor_center = int(round(float(np.median(centers))))
-    level_offsets = absolute_ticks.astype(float, copy=False) - float(anchor_center)
-    y_edges = np.concatenate(
-        (
-            [level_offsets[0] - 0.5],
-            level_offsets[:-1] + (np.diff(level_offsets) / 2.0),
-            [level_offsets[-1] + 0.5],
-        )
-    ).astype(float, copy=False)
-    best_bid_trace = best_bid - float(anchor_center)
-    best_ask_trace = best_ask - float(anchor_center)
-    ytick_positions, ytick_labels = _sparse_tick_labels(level_offsets, unit="")
+    levels = max_window if price_window_ticks is None else max(1, min(int(price_window_ticks), max_window))
+    level_matrix = _visible_level_matrix(signed_depth, levels=levels, center_index=max_window)
+    y_edges = np.arange(-0.5, level_matrix.shape[0] + 0.5, 1.0, dtype=float)
+    ytick_positions, ytick_labels = _level_tick_labels(levels)
     return HeatmapPayload(
         steps=steps,
-        signed_depth=absolute_matrix,
+        signed_depth=level_matrix,
         x_edges=_step_edges(steps),
         y_edges=y_edges,
-        best_bid_trace=best_bid_trace,
-        best_ask_trace=best_ask_trace,
         ylabel="Levels",
         yticks=ytick_positions,
         yticklabels=ytick_labels,
@@ -404,16 +334,42 @@ def _scaled_signed_depth(signed_depth: np.ndarray) -> tuple[np.ndarray, float]:
     return transformed, max(vmax, 1e-6)
 
 
-def _sparse_tick_labels(values: np.ndarray, *, unit: str) -> tuple[np.ndarray, list[str]]:
-    if values.size <= 9:
-        return values, [f"{value:.2f}" if unit == "price" else f"{int(value)}" for value in values]
-    positions = np.linspace(0, values.size - 1, num=9, dtype=int)
-    unique_positions = np.unique(positions)
-    labels = []
-    for position in unique_positions:
-        value = values[position]
-        labels.append(f"{value:.2f}" if unit == "price" else f"{int(value)}")
-    return values[unique_positions], labels
+def _visible_level_matrix(signed_depth: np.ndarray, *, levels: int, center_index: int) -> np.ndarray:
+    matrix = np.full((levels * 2, signed_depth.shape[1]), np.nan, dtype=np.float32)
+    for column_index in range(signed_depth.shape[1]):
+        column = signed_depth[:, column_index]
+
+        ask_rank = 0
+        for row_index in range(center_index + 1, column.shape[0]):
+            value = column[row_index]
+            if not np.isfinite(value) or value >= 0.0:
+                continue
+            matrix[(levels - 1) - ask_rank, column_index] = value
+            ask_rank += 1
+            if ask_rank >= levels:
+                break
+
+        bid_rank = 0
+        for row_index in range(center_index - 1, -1, -1):
+            value = column[row_index]
+            if not np.isfinite(value) or value <= 0.0:
+                continue
+            matrix[levels + bid_rank, column_index] = value
+            bid_rank += 1
+            if bid_rank >= levels:
+                break
+    return matrix
+
+
+def _level_tick_labels(levels: int) -> tuple[np.ndarray, list[str]]:
+    positions: np.ndarray = np.arange((levels * 2), dtype=float)
+    labels = [f"ask {rank}" for rank in range(levels, 0, -1)]
+    labels.extend(f"bid {rank}" for rank in range(1, levels + 1))
+    if positions.size <= 10:
+        return positions, labels
+    indices = np.linspace(0, positions.size - 1, num=10, dtype=int)
+    unique_indices = np.unique(indices)
+    return positions[unique_indices], [labels[index] for index in unique_indices]
 
 
 def _configure_matplotlib():

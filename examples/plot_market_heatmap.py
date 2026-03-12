@@ -18,7 +18,7 @@ def parse_args() -> argparse.Namespace:
         "--anchor",
         choices=("mid", "price"),
         default="mid",
-        help="Heatmap anchor mode.",
+        help="Compatibility flag. Heatmap rows stay fixed by visible level rank in both modes.",
     )
     parser.add_argument(
         "--output",
@@ -49,14 +49,14 @@ def main() -> None:
         figure = market.plot_heatmap(
             anchor="price",
             max_steps=min(args.steps, 1_200),
-            price_window_ticks=16,
-            title=f"orderwave fixed-level heatmap (seed={args.seed})",
+            price_window_ticks=12,
+            title=f"orderwave stable level-ranked heatmap (seed={args.seed})",
         )
     else:
         figure = market.plot(
             max_steps=min(args.steps, 1_200),
             price_window_ticks=12,
-            title=f"orderwave overview ({args.anchor}, seed={args.seed})",
+            title=f"orderwave overview ({args.anchor} compatibility mode, seed={args.seed})",
         )
     figure.set_dpi(args.dpi)
 

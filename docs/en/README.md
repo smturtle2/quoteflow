@@ -25,8 +25,9 @@ The plotting surface is:
 
 Heatmap semantics:
 
-- `anchor="mid"` centers rows on the moving market center and is best for reading sweeps and refills.
-- `anchor="price"` keeps a fixed reference ladder, but the y-axis still shows levels rather than prices.
+- Heatmap rows are fixed visible ranks, ordered as `ask N ... ask 1 | bid 1 ... bid N`.
+- The y-axis never switches to price and does not drift vertically when the market moves.
+- `anchor="mid"` and `anchor="price"` are kept for API compatibility, but both render the same stable level-ranked rows.
 - Colors are signed depth with robust asinh scaling, so one large wall does not flatten the rest of the book.
 
 ## Documentation Images
