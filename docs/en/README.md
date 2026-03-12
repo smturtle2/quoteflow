@@ -15,6 +15,13 @@
 
 `MarketConfig` still exposes only the statistical controls for flow intensity, fair-value movement, price-level decay, order-size bounds, and spread/fair-move limits.
 
+## Runtime Model
+
+- The engine stays aggregate-book only. It does not simulate per-order FIFO queues.
+- Realism comes from a queue-reactive kernel that tracks buy/sell flow impulse, bid/ask cancel pressure, bid/ask refill lag, and gap pressure.
+- Market, limit, and cancel flow are sampled from side-specific Poisson intensities conditioned on the current book state.
+- Repair is safety-only, so visible holes and delayed refill can survive instead of being erased every step.
+
 ## Plotting
 
 The plotting surface is:
@@ -42,4 +49,10 @@ Standalone example:
 
 ```bash
 python -m examples.plot_market_heatmap --output artifacts/orderwave_heatmap.png
+```
+
+Realism profile:
+
+```bash
+python -m scripts.profile_realism --steps 5000
 ```

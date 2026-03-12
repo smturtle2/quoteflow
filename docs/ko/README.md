@@ -15,6 +15,13 @@
 
 `MarketConfig`는 flow intensity, fair-value movement, price-level decay, order-size bounds, spread/fair-move limit만 계속 노출합니다.
 
+## Runtime 모델
+
+- 엔진은 aggregate-book 구조를 유지합니다. per-order FIFO queue는 시뮬레이션하지 않습니다.
+- 현실성은 buy/sell flow impulse, bid/ask cancel pressure, bid/ask refill lag, gap pressure를 추적하는 queue-reactive kernel에서 나옵니다.
+- market, limit, cancel flow는 현재 book 상태를 조건으로 한 side-specific Poisson intensity에서 샘플링합니다.
+- repair는 safety-only라서 visible hole과 delayed refill이 매 step 지워지지 않습니다.
+
 ## Plotting
 
 plot surface:
@@ -42,4 +49,10 @@ standalone example:
 
 ```bash
 python -m examples.plot_market_heatmap --output artifacts/orderwave_heatmap.png
+```
+
+realism profile:
+
+```bash
+python -m scripts.profile_realism --steps 5000
 ```

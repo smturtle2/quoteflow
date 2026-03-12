@@ -2,7 +2,7 @@
 
 Compact aggregate order-book simulation for Python, with readable built-in heatmaps.
 
-`orderwave` keeps the runtime model small: a sparse bid/ask book, Poisson limit/market/cancel flow, bounded mean-reverting fair value, and a light liquidity-state kernel that creates sweep and refill structure without the older heuristic stack.
+`orderwave` keeps the runtime model small: a sparse bid/ask book, bounded mean-reverting fair value, and a queue-reactive liquidity kernel that drives buy/sell flow clustering, side-specific cancel pressure, refill lag, and gap recovery without reintroducing the older heuristic stack.
 
 ![Overview](docs/assets/orderwave-built-in-overview.png)
 
@@ -77,11 +77,21 @@ History columns:
 
 ## Model
 
-- Fair price follows a bounded mean-reverting Gaussian process.
-- Limit, market, and cancel counts are sampled from Poisson distributions.
-- Event side is driven by fair-value gap, depth imbalance, and recent signed flow.
-- Limit placement mixes inside join/improve, best-level refill, and deeper wall placement.
-- Aggressive flow raises side-specific stress and refill pressure so the heatmap shows asymmetric withdrawal and recovery.
+- Fair price follows a bounded mean-reverting Gaussian process with short-memory flow feedback.
+- Buy/sell market flow, bid/ask cancel flow, and bid/ask limit flow all use state-dependent Poisson intensities rather than one shared shuffled event pool.
+- The internal kernel tracks buy/sell flow impulse, side-specific cancel pressure, side-specific refill lag, and gap pressure.
+- Limit placement is split into join, touch refill, gap fill, and deep add families so the book can hold holes and recover instead of being perfectly refilled every step.
+- Repair is safety-only: it prevents one-sided or crossed books, but it no longer backfills every visible level.
+
+## Realism Profiling
+
+Profile generic microstructure behavior with:
+
+```bash
+python -m scripts.profile_realism --steps 5000
+```
+
+The profiler reports spread persistence, trade-sign autocorrelation, same-step and next-step impact, top-rank gap frequency, and spread recovery lag.
 
 ## Documentation Assets
 
